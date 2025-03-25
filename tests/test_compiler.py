@@ -30,8 +30,8 @@ class TestModelCompiler(unittest.TestCase):
     def test_compile_model(self):
         # Test if the model compiles successfully"
         logger.info("Testing model compilation...")
-        print(f"Model path: {self.model_path}")
-        print(f"Prepared model path: {self.prepared_model_path}")
+        # print(f"Model path: {self.model_path}")
+        # print(f"Prepared model path: {self.prepared_model_path}")
         result = compile_model(self.prepared_model_path, self.experiment_name, self.tiling_config, self.fuse, self.max_tries)
         self.assertTrue(result, "Model compilation failed")
         logger.info("Model compilation test completed")

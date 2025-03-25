@@ -2,10 +2,9 @@ import os
 import json
 import time
 import subprocess
-import logging
-import sys
+from utils.logging_utils import setup_logging
 
-logger = logging.getLogger("genesys_optimizer.compiler")
+logger = setup_logging("genesys_optimizer.compiler")
 
 def prepare_model(model_path, max_tries = 1) -> bool:
     """Prepare the model for compilation.

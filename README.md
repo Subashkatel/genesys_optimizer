@@ -25,7 +25,7 @@ pip install -e .
 python -m genesys_optimizer.main --model_path /path/to/model.onnx --sim_path /path/to/simulator
 
 # Current Usage
-python3 main.py --model_path /Users/subash/Desktop/sudachi/Research/HadisLab/GeneSys.codelets/resnet18.onnx --sim_path /Users/subash/Desktop/sudachi/Research/HadisLab/GeneSys.sim --max_configs_per_layer 5 --checkpoint_dir my_checkpoints --enable_caching --cache_dir model_cache --max_workers 2
+python3 main.py --model_path /Users/Name/GeneSys.codelets/resnet18.onnx --sim_path /Users/Name/GeneSys.sim --max_configs_per_layer 5 --checkpoint_dir my_checkpoints --enable_caching --cache_dir model_cache --max_workers 2
 
 ```
 

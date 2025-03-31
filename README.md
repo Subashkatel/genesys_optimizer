@@ -27,49 +27,6 @@ python -m genesys_optimizer.main --model_path /path/to/model.onnx --sim_path /pa
 # Current Usage
 python3 main.py --model_path /Users/subash/Desktop/sudachi/Research/HadisLab/GeneSys.codelets/resnet18.onnx --sim_path /Users/subash/Desktop/sudachi/Research/HadisLab/GeneSys.sim --max_configs_per_layer 5 --checkpoint_dir my_checkpoints --enable_caching --cache_dir model_cache --max_workers 2
 
-# Advanced usage with options
-# python -m genesys_optimizer.main \
-#   --model_path /path/to/model.onnx \
-#   --sim_path /path/to/simulator \
-#   --metric totCycles \
-#   --output_dir custom_output \
-#   --layers layer1 layer2 \
-#   --operation_types conv matmul \
-#   --max_configs_per_layer 5 \
-#   --max_workers 4 \
-#   --log_file optimization.log \
-#   --log_level DEBUG
-  
-# # Run with exhaustive search (try all possible configurations)
-# python -m genesys_optimizer.main \
-#   --model_path /path/to/model.onnx \
-#   --sim_path /path/to/simulator \
-#   --exhaustive
-
-# # Use checkpointing to recover from crashes (saves progress every 5 minutes by default)
-# python -m genesys_optimizer.main \
-#   --model_path /path/to/model.onnx \
-#   --sim_path /path/to/simulator \
-#   --checkpoint_dir my_checkpoints \
-#   --checkpoint_interval 60
-
-# # Use layer similarity caching for repeated patterns (enabled by default)
-# python -m genesys_optimizer.main \
-#   --model_path /path/to/model.onnx \
-#   --sim_path /path/to/simulator \
-#   --cache_dir model_cache
-
-# # Disable caching if needed
-# python -m genesys_optimizer.main \
-#   --model_path /path/to/model.onnx \
-#   --sim_path /path/to/simulator \
-#   --disable_caching
-
-# # Clear cache before starting
-# python -m genesys_optimizer.main \
-#   --model_path /path/to/model.onnx \
-#   --sim_path /path/to/simulator \
-#   --clear_cache
 ```
 
 ### Command Line Options

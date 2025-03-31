@@ -40,8 +40,8 @@ class TestLayerExtractor(unittest.TestCase):
         logger.info(f"Extracted layer info: {result}")
         self.assertEqual(result.get("operation"), self.expected_output["operation"])
         self.assertEqual(result.get("instance_id"), self.expected_output["instance_id"])
-        self.assertEqual(result.get("current_tile_splits"), self.expected_output["tile_splits"])
-        self.assertEqual(result.get("dimensions"), self.expected_output["iterable_dimensions"])
+        self.assertEqual(result.get("tile_splits"), self.expected_output["tile_splits"])
+        self.assertEqual(result.get("iterable_dimensions"), self.expected_output["iterable_dimensions"])
         self.assertEqual(result.get("tiling_key"), self.expected_output["tiling_key"])
         logger.info("Layer extraction test completed")
         

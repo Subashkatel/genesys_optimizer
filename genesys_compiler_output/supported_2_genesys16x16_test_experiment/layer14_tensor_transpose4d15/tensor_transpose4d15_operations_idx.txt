@@ -1,0 +1,25 @@
+// CODELET:	tensor_transpose4d15
+inputs=data['N', 'H', 'W', 'C']
+intermediates=
+outputs=out['N', 'C', 'W', 'H']
+0	config0: start-SIMD
+1	(C)loop0[0]: START=0; STOP=128; STRIDE=2; OFFSET:0
+2		(N)loop1[1]: START=0; STOP=1; STRIDE=1; OFFSET:0
+3			(W)loop2[2]: START=0; STOP=64; STRIDE=64; OFFSET:0
+4				(H)loop3[3]: START=0; STOP=64; STRIDE=64; OFFSET:0
+5					transfer0: OPERAND: data[DRAM->VMEM1], SIZES: [[1, 64, 64, 128], [1, 64, 64, 2]]
+6					(C)loop4[4]: START=0; STOP=2; STRIDE=1; OFFSET:0
+7						(N)loop5[5]: START=0; STOP=1; STRIDE=1; OFFSET:0
+8							(W)loop6[6]: START=0; STOP=64; STRIDE=1; OFFSET:0
+9								(H)loop7[7]: START=0; STOP=64; STRIDE=1; OFFSET:0
+10									compute0: SIMD-TRANSPOSE(['data'])->['out']
+11								loop7: END
+12							loop6: END
+13						loop5: END
+14					loop4: END
+15					transfer1: OPERAND: out[VMEM2->DRAM], SIZES: [[1, 2, 64, 64], [1, 128, 64, 64]]
+16				loop3: END
+17			loop2: END
+18		loop1: END
+19	loop0: END
+20	config1: end-SIMD

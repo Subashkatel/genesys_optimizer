@@ -1,0 +1,299 @@
+{
+  "mode": "inference",
+  "program": [
+    {
+      "operation": "elem_mul3d1d",
+      "instance_id": 43,
+      "tile_splits": {
+        "N": 32,
+        "C": 1,
+        "H": 256
+      },
+      "iterable_dimensions": {
+        "N": 512,
+        "C": 128,
+        "H": 512
+      },
+      "operation_parameters": {},
+      "inputs": [
+        {
+          "name": "op1",
+          "unique_name": "_layers.0_post_attention_layernorm_Mul_output_0_Y",
+          "dtype": "FXP32",
+          "shape_symbols": {
+            "N": 512,
+            "C": 128,
+            "H": 512
+          },
+          "data_path": [
+            "DRAM",
+            "VMEM1",
+            "SIMD"
+          ],
+          "tiling": {
+            "DRAM": {
+              "N": 512,
+              "C": 128,
+              "H": 512
+            },
+            "VMEM1": {
+              "N": 16,
+              "C": 128,
+              "H": 2
+            },
+            "SIMD": {
+              "N": 16,
+              "C": 1,
+              "H": 1
+            }
+          }
+        },
+        {
+          "name": "op2",
+          "unique_name": "layers.0.input_layernorm.weight",
+          "dtype": "FXP32",
+          "shape_symbols": {
+            "N": 512
+          },
+          "data_path": [
+            "DRAM",
+            "VMEM2",
+            "SIMD"
+          ],
+          "tiling": {
+            "DRAM": {
+              "N": 512
+            },
+            "VMEM2": {
+              "N": 16
+            },
+            "SIMD": {
+              "N": 16
+            }
+          }
+        }
+      ],
+      "intermediate": [],
+      "outputs": [
+        {
+          "name": "out",
+          "unique_name": "_layers.0_post_attention_layernorm_Mul_1_output_0_Y",
+          "dtype": "FXP32",
+          "shape_symbols": {
+            "N": 512,
+            "C": 128,
+            "H": 512
+          },
+          "data_path": [
+            "SIMD",
+            "VMEM1",
+            "DRAM"
+          ],
+          "tiling": {
+            "VMEM1": {
+              "N": 16,
+              "C": 128,
+              "H": 2
+            },
+            "DRAM": {
+              "N": 512,
+              "C": 128,
+              "H": 512
+            },
+            "SIMD": {
+              "N": 16,
+              "C": 1,
+              "H": 1
+            }
+          }
+        }
+      ],
+      "operation_sequence": [
+        {
+          "op_type": "config",
+          "op_id": 0,
+          "start_or_finish": "start",
+          "target": "SIMD"
+        },
+        {
+          "op_type": "loop",
+          "op_id": 1,
+          "start": 0,
+          "end": 512,
+          "offset": 0,
+          "stride": 16
+        },
+        {
+          "op_type": "transfer",
+          "op_id": 5,
+          "operand": "op2",
+          "transfer_path": [
+            "DRAM",
+            "VMEM2"
+          ],
+          "transfers": {
+            "DRAM->VMEM2": {
+              "size": 512,
+              "offset": [
+                "DIM:0,LOOPID:0,OFFSET:0"
+              ]
+            },
+            "VMEM2->SIMD": {
+              "size": 16,
+              "offset": [
+                "DIM:0,LOOPID:3,OFFSET:0"
+              ]
+            }
+          }
+        },
+        {
+          "op_type": "loop",
+          "op_id": 2,
+          "start": 0,
+          "end": 128,
+          "offset": 0,
+          "stride": 128
+        },
+        {
+          "op_type": "loop",
+          "op_id": 3,
+          "start": 0,
+          "end": 512,
+          "offset": 0,
+          "stride": 2
+        },
+        {
+          "op_type": "transfer",
+          "op_id": 4,
+          "operand": "op1",
+          "transfer_path": [
+            "DRAM",
+            "VMEM1"
+          ],
+          "transfers": {
+            "DRAM->VMEM1": {
+              "size": 33554432,
+              "offset": [
+                "DIM:0,LOOPID:0,OFFSET:0",
+                "DIM:1,LOOPID:1,OFFSET:0",
+                "DIM:2,LOOPID:2,OFFSET:0"
+              ]
+            },
+            "VMEM1->SIMD": {
+              "size": 4096,
+              "offset": [
+                "DIM:0,LOOPID:3,OFFSET:0",
+                "DIM:1,LOOPID:4,OFFSET:0",
+                "DIM:2,LOOPID:5,OFFSET:0"
+              ]
+            }
+          }
+        },
+        {
+          "op_type": "loop",
+          "op_id": 12,
+          "start": 0,
+          "end": 16,
+          "offset": 0,
+          "stride": 1
+        },
+        {
+          "op_type": "loop",
+          "op_id": 14,
+          "start": 0,
+          "end": 128,
+          "offset": 0,
+          "stride": 1
+        },
+        {
+          "op_type": "loop",
+          "op_id": 16,
+          "start": 0,
+          "end": 2,
+          "offset": 0,
+          "stride": 1
+        },
+        {
+          "op_type": "compute",
+          "op_id": 6,
+          "operation_name": "MUL",
+          "target": "SIMD",
+          "sources": [
+            "op1",
+            "op2"
+          ],
+          "destinations": [
+            "out"
+          ]
+        },
+        {
+          "op_type": "loop_end",
+          "op_id": 17,
+          "loop_name": "loop5"
+        },
+        {
+          "op_type": "loop_end",
+          "op_id": 15,
+          "loop_name": "loop4"
+        },
+        {
+          "op_type": "loop_end",
+          "op_id": 13,
+          "loop_name": "loop3"
+        },
+        {
+          "op_type": "transfer",
+          "op_id": 7,
+          "operand": "out",
+          "transfer_path": [
+            "VMEM1",
+            "DRAM"
+          ],
+          "transfers": {
+            "SIMD->VMEM1": {
+              "size": 4096,
+              "offset": [
+                "DIM:0,LOOPID:3,OFFSET:0",
+                "DIM:1,LOOPID:4,OFFSET:0",
+                "DIM:2,LOOPID:5,OFFSET:0"
+              ]
+            },
+            "VMEM1->DRAM": {
+              "size": 33554432,
+              "offset": [
+                "DIM:0,LOOPID:0,OFFSET:0",
+                "DIM:1,LOOPID:1,OFFSET:0",
+                "DIM:2,LOOPID:2,OFFSET:0"
+              ]
+            }
+          }
+        },
+        {
+          "op_type": "loop_end",
+          "op_id": 8,
+          "loop_name": "loop2"
+        },
+        {
+          "op_type": "loop_end",
+          "op_id": 9,
+          "loop_name": "loop1"
+        },
+        {
+          "op_type": "loop_end",
+          "op_id": 10,
+          "loop_name": "loop0"
+        },
+        {
+          "op_type": "config",
+          "op_id": 11,
+          "start_or_finish": "end",
+          "target": "SIMD"
+        }
+      ]
+    },
+    "SET_BASE_ADDR LOW, IMEM, IBUF, 0, 0",
+    "SET_BASE_ADDR HIGH, IMEM, IBUF, 0, 0",
+    "LD_ST LD, IMEM, IBUF, 0, 108",
+    "BLOCK_END 0"
+  ]
+}

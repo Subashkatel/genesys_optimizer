@@ -1,0 +1,46 @@
+// CODELET:	softmax4d29
+inputs=data['N', 'H', 'W', 'C']
+intermediates=qln2['SIMD_SIZE'], qb['SIMD_SIZE'], qc['SIMD_SIZE'], one['SIMD_SIZE'], neg_one['SIMD_SIZE'], min_val['SIMD_SIZE'], mx['N', 'C', 'W'], z['N', 'H', 'W', 'C'], b['N', 'H', 'W', 'C'], y['N', 'H', 'W', 'C']
+outputs=out['N', 'H', 'W', 'C']
+0	config0: start-SIMD
+1	config1: start-IMM[0]=75710
+2	config2: start-IMM[1]=147783
+3	config3: start-IMM[2]=22638
+4	config4: start-IMM[3]=65536
+5	config5: start-IMM[4]=-65536
+6	config6: start-IMM[5]=-2147483648
+7	(N)loop0[0]: START=0; STOP=1; STRIDE=1; OFFSET:0
+8		(C)loop1[1]: START=0; STOP=16; STRIDE=2; OFFSET:0
+9			(H)loop2[2]: START=0; STOP=128; STRIDE=128; OFFSET:0
+10				(W)loop3[3]: START=0; STOP=128; STRIDE=16; OFFSET:0
+11					transfer0: OPERAND: data[DRAM->VMEM1], SIZES: [[1, 128, 128, 16], [1, 128, 16, 2]]
+12					(N)loop4[4]: START=0; STOP=1; STRIDE=1; OFFSET:0
+13						(C)loop5[5]: START=0; STOP=2; STRIDE=1; OFFSET:0
+14							(H)loop6[6]: START=0; STOP=128; STRIDE=1; OFFSET:0
+15								(W)loop7[7]: START=0; STOP=16; STRIDE=1; OFFSET:0
+16									compute0: SIMD-MOVE(['min_val'])->['mx']
+17									compute1: SIMD-MAX(['data', 'mx'])->['mx']
+18									compute2: SIMD-SUB(['data', 'mx'])->['out']
+19									compute13: SIMD-MOVE(['one'])->['mx']
+20									compute3: SIMD-DIV(['out', 'qln2'])->['z']
+21									compute4: SIMD-MUL(['z', 'neg_one'])->['z']
+22									compute5: SIMD-MUL(['z', 'qln2'])->['y']
+23									compute6: SIMD-ADD(['out', 'y'])->['y']
+24									compute7: SIMD-ADD(['out', 'qb'])->['out']
+25									compute8: SIMD-MOVE(['out'])->['b']
+26									compute9: SIMD-MUL(['out', 'b'])->['out']
+27									compute11: SIMD-FLOOR(['z'])->['b']
+28									compute10: SIMD-ADD(['out', 'qc'])->['out']
+29									compute12: SIMD-RSHIFT(['out', 'b'])->['out']
+30									compute14: SIMD-MACC(['out', 'one', 'mx'])->['mx']
+31									compute15: SIMD-DIV(['out', 'mx'])->['out']
+32								loop7: END
+33							loop6: END
+34						loop5: END
+35					loop4: END
+36					transfer1: OPERAND: out[VMEM1->DRAM], SIZES: [[1, 128, 16, 2], [1, 128, 128, 16]]
+37				loop3: END
+38			loop2: END
+39		loop1: END
+40	loop0: END
+41	config7: end-SIMD

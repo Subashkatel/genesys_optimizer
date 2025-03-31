@@ -1,0 +1,37 @@
+// CODELET:	matmul4d4d30
+inputs=data['B', 'C', 'M', 'N'], weight['B', 'C', 'N', 'P']
+intermediates=
+outputs=out['B', 'C', 'M', 'P']
+0	config0: start-systolic_array
+1	config1: start-WBUF
+2	config2: start-IBUF
+3	config3: start-OBUF
+4	(B)loop0[0]: START=0; STOP=1; STRIDE=1; OFFSET:0
+5		(C)loop1[1]: START=0; STOP=8; STRIDE=8; OFFSET:0
+6			(N)loop2[2]: START=0; STOP=64; STRIDE=64; OFFSET:0
+7				(M)loop3[3]: START=0; STOP=128; STRIDE=64; OFFSET:0
+8					transfer0: OPERAND: data[DRAM->IBUF], SIZES: [[1, 8, 128, 64], [1, 8, 64, 64]]
+9					(P)loop4[4]: START=0; STOP=64; STRIDE=64; OFFSET:0
+10						transfer2: OPERAND: out[DRAM->OBUF], SIZES: [[1, 8, 128, 64], [1, 8, 64, 64]]
+11						transfer1: OPERAND: weight[DRAM->WBUF], SIZES: [[1, 8, 64, 64], [1, 8, 64, 64]]
+12						(B)loop5[5]: START=0; STOP=1; STRIDE=1; OFFSET:0
+13							(C)loop6[6]: START=0; STOP=8; STRIDE=1; OFFSET:0
+14								(N)loop7[7]: START=0; STOP=64; STRIDE=1; OFFSET:0
+15									(M)loop8[8]: START=0; STOP=64; STRIDE=1; OFFSET:0
+16										(P)loop9[9]: START=0; STOP=64; STRIDE=1; OFFSET:0
+17											compute0: pe_array-MVMUL(['data', 'weight', 'out'])->['out']
+18										loop9: END
+19									loop8: END
+20								loop7: END
+21							loop6: END
+22						loop5: END
+23						transfer3: OPERAND: out[OBUF->DRAM], SIZES: [[1, 8, 64, 64], [1, 8, 128, 64]]
+24					loop4: END
+25				loop3: END
+26			loop2: END
+27		loop1: END
+28	loop0: END
+29	config4: end-WBUF
+30	config5: end-IBUF
+31	config6: end-OBUF
+32	config7: end-systolic_array

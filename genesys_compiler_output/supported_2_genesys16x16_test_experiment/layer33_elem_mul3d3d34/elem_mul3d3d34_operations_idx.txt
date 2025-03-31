@@ -1,0 +1,22 @@
+// CODELET:	elem_mul3d3d34
+inputs=op1['N', 'C', 'H'], op2['N', 'C', 'H']
+intermediates=
+outputs=out['N', 'C', 'H']
+0	config0: start-SIMD
+1	(N)loop0[0]: START=0; STOP=1; STRIDE=1; OFFSET:0
+2		(C)loop1[1]: START=0; STOP=128; STRIDE=128; OFFSET:0
+3			(H)loop2[2]: START=0; STOP=512; STRIDE=32; OFFSET:0
+4				transfer1: OPERAND: op2[DRAM->VMEM2], SIZES: [[1, 128, 512], [1, 128, 32]]
+5				transfer0: OPERAND: op1[DRAM->VMEM1], SIZES: [[1, 128, 512], [1, 128, 32]]
+6				(N)loop3[3]: START=0; STOP=1; STRIDE=1; OFFSET:0
+7					(C)loop4[4]: START=0; STOP=128; STRIDE=1; OFFSET:0
+8						(H)loop5[5]: START=0; STOP=32; STRIDE=1; OFFSET:0
+9							compute0: SIMD-MUL(['op1', 'op2'])->['out']
+10						loop5: END
+11					loop4: END
+12				loop3: END
+13				transfer2: OPERAND: out[VMEM1->DRAM], SIZES: [[1, 128, 32], [1, 128, 512]]
+14			loop2: END
+15		loop1: END
+16	loop0: END
+17	config1: end-SIMD

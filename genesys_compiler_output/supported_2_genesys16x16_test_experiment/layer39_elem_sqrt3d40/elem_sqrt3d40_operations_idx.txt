@@ -1,0 +1,21 @@
+// CODELET:	elem_sqrt3d40
+inputs=op1['N', 'C', 'H']
+intermediates=
+outputs=out['N', 'C', 'H']
+0	config0: start-SIMD
+1	(N)loop0[0]: START=0; STOP=1; STRIDE=1; OFFSET:0
+2		(C)loop1[1]: START=0; STOP=128; STRIDE=128; OFFSET:0
+3			(H)loop2[2]: START=0; STOP=16; STRIDE=16; OFFSET:0
+4				transfer0: OPERAND: op1[DRAM->VMEM1], SIZES: [[1, 128, 16], [1, 128, 16]]
+5				(N)loop3[3]: START=0; STOP=1; STRIDE=1; OFFSET:0
+6					(C)loop4[4]: START=0; STOP=128; STRIDE=1; OFFSET:0
+7						(H)loop5[5]: START=0; STOP=16; STRIDE=1; OFFSET:0
+8							compute0: SIMD-SQRT(['op1'])->['out']
+9						loop5: END
+10					loop4: END
+11				loop3: END
+12				transfer1: OPERAND: out[VMEM2->DRAM], SIZES: [[1, 128, 16], [1, 128, 16]]
+13			loop2: END
+14		loop1: END
+15	loop0: END
+16	config1: end-SIMD

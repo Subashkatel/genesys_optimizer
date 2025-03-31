@@ -47,6 +47,7 @@ def extract_layers_info(output_dir: str, layer_name:str) -> list:
                 return {
                     "operation":    operation,
                     "instance_id":  instance_id,
+                    "dimensions":     dimensions,
                     "iterable_dimensions":   dimensions,
                     "tile_splits": tile_splits,
                     "tiling_key": f"{operation}_{instance_id}"
@@ -97,7 +98,7 @@ def filter_layers_by_pattern(all_layers: list, patterns: list) -> list:
     
     return [layer for layer in all_layers if any(pattern in layer for pattern in patterns)]
 
-def filter_layers_by_operations(all_layers: list, output_dir: str, operations: list) -> list:
+def filter_layers_by_operation(all_layers: list, output_dir: str, operations: list) -> list:
     """Filter the layers by operations and return the filtered layers.
 
     Args:

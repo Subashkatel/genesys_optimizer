@@ -6,19 +6,24 @@ from utils.logging_utils import setup_logging
 
 logger = setup_logging("genesys_optimizer.compiler")
 
-def prepare_model(model_path, max_tries = 1) -> bool:
+def prepare_model(model_path, max_retries = 0) -> bool:
     """Prepare the model for compilation.
 
     Args:
         model_path (_type_): _description_
         max_tries (int, optional): _description_. Defaults to 0.
     """
+    model_path = os.path.abspath(model_path)
+
+    if not os.path.exists(model_path):
+        logger.error(f"Model path does not exist: {model_path}")
+        return False
 
     cmd = ["prepare-model", "-m", model_path]
 
-    for i in range(max_tries):
+    for i in range(max_retries):
         try:
-            logger.info(f"Preparing the model: {model_path} (try {i +1} of {max_tries})")
+            logger.info(f"Preparing the model: {model_path} (try {i +1} of {max_retries})")
             logger.info(f"command: {' '.join(cmd)}")
             result = subprocess.run(cmd, check=True, capture_output=True, text=True)
             logger.info(result.stdout)
@@ -26,21 +31,26 @@ def prepare_model(model_path, max_tries = 1) -> bool:
             return True
         except subprocess.CalledProcessError as e:
             logger.error(f"Error while preparing the model: {e.stderr}")
-            if i < max_tries - 1:
-                logger.info(f"Retrying preparation of the model: {model_path} (try {i + 2} of {max_tries})")
+            if i < max_retries - 1:
+                logger.info(f"Retrying preparation of the model: {model_path} (try {i + 2} of {max_retries})")
             else:
-                logger.error(f"Failed to prepare the model after {max_tries} attempts.")
+                logger.error(f"Failed to prepare the model after {max_retries} attempts.")
                 return False
     return False
 
 
-def compile_model(model_path, experiment_name, tiling_config=None, fuse=False, max_tries = 1) -> bool:
+def compile_model(model_path, experiment_name, tiling_config=None, fuse=False, max_retries = 1) -> bool:
     """Compile the model after the model has been prepared for compilation.
 
     Args:
         model_path (_type_): _description_
         max_tries (int, optional): _description_. Defaults to 1.
     """
+    model_path = os.path.abspath(model_path)
+
+    if not os.path.exists(model_path):
+        logger.error(f"Model path does not exist: {model_path}")
+        return False
 
     cmd = ["compile-genesys", "-m", model_path, "-e", experiment_name]
     
@@ -61,9 +71,9 @@ def compile_model(model_path, experiment_name, tiling_config=None, fuse=False, m
         # if fuse is true add -f to the command
         cmd.append("-f")
     
-    for i in range(max_tries):
+    for i in range(max_retries):
         try:
-            logger.info(f"Compiling the model: {model_path} (try {i +1} of {max_tries})")
+            logger.info(f"Compiling the model: {model_path} (try {i +1} of {max_retries})")
             logger.info(f"command: {' '.join(cmd)}")
             result = subprocess.run(cmd, check=True, capture_output=True, text=True)
             logger.info(result.stdout)
@@ -71,10 +81,10 @@ def compile_model(model_path, experiment_name, tiling_config=None, fuse=False, m
             return True
         except subprocess.CalledProcessError as e:
             logger.error(f"Error while compiling the model: {e.stderr}")
-            if i < max_tries - 1:
-                logger.info(f"Retrying compilation of the model: {model_path} (try {i + 2} of {max_tries})")
+            if i < max_retries - 1:
+                logger.info(f"Retrying compilation of the model: {model_path} (try {i + 2} of {max_retries})")
             else:
-                logger.error(f" Failed to compile the model after {max_tries} attempts.")
+                logger.error(f" Failed to compile the model after {max_retries} attempts.")
                 return False
     return False
 

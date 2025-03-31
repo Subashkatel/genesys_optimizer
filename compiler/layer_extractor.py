@@ -47,8 +47,8 @@ def extract_layers_info(output_dir: str, layer_name:str) -> list:
                 return {
                     "operation":    operation,
                     "instance_id":  instance_id,
-                    "dimensions":   dimensions,
-                    "current_tile_splits": tile_splits,
+                    "iterable_dimensions":   dimensions,
+                    "tile_splits": tile_splits,
                     "tiling_key": f"{operation}_{instance_id}"
                 }
             
@@ -96,3 +96,33 @@ def filter_layers_by_pattern(all_layers: list, patterns: list) -> list:
         return all_layers
     
     return [layer for layer in all_layers if any(pattern in layer for pattern in patterns)]
+
+def filter_layers_by_operations(all_layers: list, output_dir: str, operations: list) -> list:
+    """Filter the layers by operations and return the filtered layers.
+
+    Args:
+        all_layers (list): _description_
+        operations (list): _description_
+
+    Returns:
+        list: _description_
+    """
+    if not all_layers:
+        logger.error("No layers found to filter.")
+        return None
+    
+    if not operations:
+        logger.error("No operations provided for filtering.")
+        return [(layer, extract_layers_info(output_dir, layer)) for layer in all_layers]
+    
+    filtered_layers = []
+    for layer in all_layers:
+        layer_info = extract_layers_info(output_dir, layer)
+        if layer_info and layer_info.get("operation") in operations:
+            filtered_layers.append((layer, layer_info))
+
+    return filtered_layers
+
+
+    
+    

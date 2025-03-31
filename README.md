@@ -1,6 +1,6 @@
 # GeneSys Optimizer
 
-A tool to optimize tiling configurations for neural network models on the GeneSys architecture.
+A tool to optimize tiling configurations for models on the GeneSys.
 
 ## Installation
 

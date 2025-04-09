@@ -30,6 +30,7 @@ def parse_arguments():
     parser.add_argument('--metric', type=str, default='totCycles', help='Performance metric to optimize (e.g., totCycles or totTime(us))')
     parser.add_argument('--output_dir', type=str, default='genesys_compiler_output',
                         help='Output directory for compilation results')
+    parser.add_argument('--config_path', type=str)
     parser.add_argument('--sim_path', type=str, required=True, help='Path to the simulator')
     parser.add_argument('--layers', type=str, nargs='*', help='Specific layers to optimize (optional)')
     parser.add_argument('--max_configs_per_layer', type=int, default=10, 
@@ -113,7 +114,7 @@ def main():
     exp_name = "default"
     logger.info("Step 1: Preparing and compiling model with default settings")
     prepare_model(args.model_path, max_retries=args.compile_retries)
-    compile_success = compile_model(args.model_path, exp_name, max_retries=args.compile_retries)
+    compile_success = compile_model(args.model_path, args.config_path, exp_name, max_retries=args.compile_retries)
     
     if not compile_success:
         logger.error("Initial compilation failed after all retries. Exiting.")

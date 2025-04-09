@@ -39,7 +39,7 @@ def prepare_model(model_path, max_retries = 0) -> bool:
     return False
 
 
-def compile_model(model_path, experiment_name, tiling_config=None, fuse=False, max_retries = 1) -> bool:
+def compile_model(model_path, config_path, experiment_name, tiling_config=None, fuse=False, max_retries = 1) -> bool:
     """Compile the model after the model has been prepared for compilation.
 
     Args:
@@ -47,12 +47,16 @@ def compile_model(model_path, experiment_name, tiling_config=None, fuse=False, m
         max_tries (int, optional): _description_. Defaults to 1.
     """
     model_path = os.path.abspath(model_path)
+    config_path = os.path.abspath(config_path) if config_path else None
 
     if not os.path.exists(model_path):
         logger.error(f"Model path does not exist: {model_path}")
         return False
-
-    cmd = ["compile-genesys", "-m", model_path, "-e", experiment_name]
+    
+    if config_path:
+        cmd = ["compile-genesys", "-m", model_path, "-c", config_path, "-e", experiment_name]
+    else:
+        cmd = ["compile-genesys", "-m", model_path, "-e", experiment_name]
     
     config_path = None
     # check if tilling_config dir exists if not create it

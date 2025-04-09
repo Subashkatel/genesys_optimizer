@@ -22,10 +22,10 @@ def prepare_model(model_path, max_retries=0, parameters=None) -> bool:
 
     cmd = ["prepare-model", "-m", model_path]
     
-    # Add parameters if provided
+    # Only add parameters if provided, otherwise don't use the flag at all
     if parameters:
-        for param_name, param_value in parameters.items():
-            cmd.extend(["--param", f"{param_name}={param_value}"])
+        param_str = ",".join([f"{k}={v}" for k, v in parameters.items()])
+        cmd.extend(["-p", param_str])
 
     for i in range(max_retries + 1):  # +1 to include the first try
         try:

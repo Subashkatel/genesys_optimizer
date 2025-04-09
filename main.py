@@ -122,7 +122,7 @@ def main():
     
     # Step 2: Get a list of all layers in the compiled model
     logger.info("Step 2: Identifying layers to optimize")
-    default_output_dir = os.path.join(args.output_dir, f"{model_name}_genesys16x16_{exp_name}")
+    default_output_dir = os.path.join(args.output_dir, f"{model_name}_{exp_name}")
     all_layers = get_all_layers(default_output_dir)
     
     # Filter layers if specified
@@ -194,7 +194,7 @@ def main():
     
     if compile_success:
         logger.info(f"Successfully compiled model with optimized tiling configuration")
-        logger.info(f"Output directory: {model_name}_genesys16x16_{final_exp_name}")
+        logger.info(f"Output directory: {model_name}_{final_exp_name}")
     else:
         logger.error("Failed to compile model with optimized tiling configuration")
     

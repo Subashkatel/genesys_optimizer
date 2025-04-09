@@ -100,7 +100,7 @@ def optimize_layer(model_path, layer_name, layer_info, output_dir, sim_path,
                 continue
             
             # Create the absolute path to the test output directory
-            test_output_dir = os.path.join(output_dir, f"{model_name}_genesys16x16_{test_exp_name}")
+            test_output_dir = os.path.join(output_dir, f"{model_name}_{test_exp_name}")
             
             # Run the simulator with the absolute path
             metrics = run_simulator(test_output_dir, layer_name, sim_path, 

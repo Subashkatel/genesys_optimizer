@@ -18,6 +18,7 @@ def extract_layers_info(output_dir: str, layer_name:str) -> list:
 
     if not os.path.exists(output_dir):
         logger.error(f"Output directory does not exist: {output_dir}")
+        print(f" output path does not exist: {output_dir}")
         return None
     
     layer_dir = os.path.join(output_dir, layer_name)

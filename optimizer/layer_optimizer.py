@@ -12,9 +12,46 @@ from utils.logging_utils import setup_logging
 
 logger = setup_logging("genesys_optimizer.layer_optimizer")
 
+def get_hardware_config_from_config_path(config_path):
+    """
+    Extract hardware configuration from config filename.
+    
+    Args:
+        config_path: Path to the configuration file
+        
+    Returns:
+        Hardware configuration string (e.g., "genesys32x32")
+    """
+    config_filename = os.path.basename(config_path)
+    if "32_" in config_filename:
+        return "genesys32x32"
+    elif "16_" in config_filename:
+        return "genesys16x16"
+    else:
+        # Default if we can't determine
+        logger.warning(f"Could not determine hardware config from {config_filename}, using default")
+        return "genesys"
+
+def get_output_directory_name(model_name, exp_name, hardware_config=None):
+    """
+    Generate the correct output directory name including hardware configuration.
+    
+    Args:
+        model_name: Base model name
+        exp_name: Experiment name
+        hardware_config: Hardware configuration string
+        
+    Returns:
+        Directory name in the format used by the compiler
+    """
+    if hardware_config:
+        return f"{model_name}_{hardware_config}_{exp_name}"
+    else:
+        return f"{model_name}_{exp_name}"
+
 def optimize_layer(model_path, layer_name, layer_info, output_dir, sim_path, 
                    metric="totCycles", max_configs=10, compile_retries=3, sim_retries=2,
-                   model_name=None, optimization_cache=None):
+                   model_name=None, optimization_cache=None, hardware_config=None):
     """
     Optimize tiling configuration for a single layer.
     
@@ -30,6 +67,7 @@ def optimize_layer(model_path, layer_name, layer_info, output_dir, sim_path,
         sim_retries: Maximum number of simulator retry attempts
         model_name: Name of the model (derived from model_path if None)
         optimization_cache: Cache for optimization results (optional)
+        hardware_config: Hardware configuration string (e.g., "genesys32x32")
         
     Returns:
         Tuple of (layer_name, best_config, best_metric, tiling_key)
@@ -99,8 +137,13 @@ def optimize_layer(model_path, layer_name, layer_info, output_dir, sim_path,
                 logger.warning(f"Compilation failed for {layer_name} configuration {i+1} after all retries")
                 continue
             
-            # Create the absolute path to the test output directory
-            test_output_dir = os.path.join(output_dir, f"{model_name}_{test_exp_name}")
+            # Create the absolute path to the test output directory - including hardware config
+            if hardware_config:
+                dir_name = get_output_directory_name(model_name, test_exp_name, hardware_config)
+            else:
+                dir_name = f"{model_name}_{test_exp_name}"
+            
+            test_output_dir = os.path.join(output_dir, dir_name)
             
             # Run the simulator with the absolute path
             metrics = run_simulator(test_output_dir, layer_name, sim_path, 
@@ -148,7 +191,8 @@ def optimize_layers_parallel(model_path, layers_info, output_dir, sim_path,
                            metric="totCycles", max_configs_per_layer=10, 
                            compile_retries=3, sim_retries=2, max_workers=None,
                            checkpoint_dir="checkpoints", checkpoint_interval=300,
-                           enable_caching=True, cache_dir="layer_cache"):
+                           enable_caching=True, cache_dir="layer_cache",
+                           config_path=None):
     """
     Optimize multiple layers in parallel using a thread pool.
     
@@ -166,11 +210,18 @@ def optimize_layers_parallel(model_path, layers_info, output_dir, sim_path,
         checkpoint_interval: Interval in seconds between checkpoint saves
         enable_caching: Whether to use caching for similar layers
         cache_dir: Directory to store layer cache files
+        config_path: Path to the hardware configuration file
         
     Returns:
         Dictionary mapping layer names to optimization results
     """
     model_name = os.path.basename(model_path).split('.')[0]
+    
+    # Extract hardware configuration from config path if available
+    hardware_config = None
+    if config_path:
+        hardware_config = get_hardware_config_from_config_path(config_path)
+        logger.info(f"Using hardware configuration: {hardware_config}")
     
     # Initialize checkpoint manager - only for saving progress, no need to load
     checkpoint_manager = CheckpointManager(model_name, checkpoint_dir)
@@ -213,7 +264,8 @@ def optimize_layers_parallel(model_path, layers_info, output_dir, sim_path,
             compile_retries=compile_retries,
             sim_retries=sim_retries,
             model_name=model_name,
-            optimization_cache=optimization_cache
+            optimization_cache=optimization_cache,
+            hardware_config=hardware_config
         )
     
     # Use ThreadPoolExecutor to parallelize layer optimization

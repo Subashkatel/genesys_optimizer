@@ -6,13 +6,12 @@ from utils.logging_utils import setup_logging
 
 logger = setup_logging("genesys_optimizer.compiler")
 
-def prepare_model(model_path, max_retries=0, parameters=None) -> bool:
+def prepare_model(model_path, max_retries = 0) -> bool:
     """Prepare the model for compilation.
 
     Args:
-        model_path (str): Path to the ONNX model file
-        max_retries (int): Number of times to retry if preparation fails
-        parameters (dict, optional): Model parameters to pass to prepare-model
+        model_path (_type_): _description_
+        max_tries (int, optional): _description_. Defaults to 0.
     """
     model_path = os.path.abspath(model_path)
 
@@ -21,15 +20,10 @@ def prepare_model(model_path, max_retries=0, parameters=None) -> bool:
         return False
 
     cmd = ["prepare-model", "-m", model_path]
-    
-    # Only add parameters if provided, otherwise don't use the flag at all
-    if parameters:
-        param_str = ",".join([f"{k}={v}" for k, v in parameters.items()])
-        cmd.extend(["-p", param_str])
 
-    for i in range(max_retries + 1):  # +1 to include the first try
+    for i in range(max_retries):
         try:
-            logger.info(f"Preparing the model: {model_path} (try {i+1} of {max_retries+1})")
+            logger.info(f"Preparing the model: {model_path} (try {i +1} of {max_retries})")
             logger.info(f"command: {' '.join(cmd)}")
             result = subprocess.run(cmd, check=True, capture_output=True, text=True)
             logger.info(result.stdout)
@@ -37,10 +31,10 @@ def prepare_model(model_path, max_retries=0, parameters=None) -> bool:
             return True
         except subprocess.CalledProcessError as e:
             logger.error(f"Error while preparing the model: {e.stderr}")
-            if i < max_retries:
-                logger.info(f"Retrying preparation of the model: {model_path} (try {i+2} of {max_retries+1})")
+            if i < max_retries - 1:
+                logger.info(f"Retrying preparation of the model: {model_path} (try {i + 2} of {max_retries})")
             else:
-                logger.error(f"Failed to prepare the model after {max_retries+1} attempts.")
+                logger.error(f"Failed to prepare the model after {max_retries} attempts.")
                 return False
     return False
 

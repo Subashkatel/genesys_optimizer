@@ -186,6 +186,7 @@ def main():
     final_exp_name = "optimized_tiling"
     compile_success = compile_model(
         model_path=args.model_path,
+        config_path=args.config_path,
         exp_name=final_exp_name, 
         tiling_config=final_tiling_config, 
         max_retries=args.compile_retries

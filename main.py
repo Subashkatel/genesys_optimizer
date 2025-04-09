@@ -114,7 +114,7 @@ def main():
     exp_name = "default"
     logger.info("Step 1: Preparing and compiling model with default settings")
     prepare_model(args.model_path, max_retries=args.compile_retries)
-    compile_success = compile_model(args.model_path, args.config_path, exp_name, max_retries=args.compile_retries)
+    compile_success = compile_model(args.model_path, args.config_path, experiment_name=exp_name, max_retries=args.compile_retries)
     
     if not compile_success:
         logger.error("Initial compilation failed after all retries. Exiting.")
@@ -187,7 +187,7 @@ def main():
     compile_success = compile_model(
         model_path=args.model_path,
         config_path=args.config_path,
-        exp_name=final_exp_name, 
+        experiment_name=final_exp_name,  
         tiling_config=final_tiling_config, 
         max_retries=args.compile_retries
     )

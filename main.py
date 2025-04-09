@@ -19,7 +19,8 @@ from compiler.layer_extractor import (
     get_all_layers, 
     filter_layers_by_pattern, 
     filter_layers_by_operation,
-    extract_layers_info
+    extract_layers_info, 
+    find_output_dir
 )
 from optimizer.layer_optimizer import optimize_layers_parallel, build_final_tiling_config
 
@@ -122,7 +123,14 @@ def main():
     
     # Step 2: Get a list of all layers in the compiled model
     logger.info("Step 2: Identifying layers to optimize")
-    default_output_dir = os.path.join(args.output_dir, f"{model_name}_{exp_name}")
+    
+    # Find the correct output directory, accounting for hardware configuration
+    default_output_dir = find_output_dir(args.output_dir, model_name, exp_name, args.config_path)
+    
+    if not default_output_dir:
+        logger.error(f"Could not find output directory for {model_name} with experiment {exp_name}. Exiting.")
+        return 1
+    
     all_layers = get_all_layers(default_output_dir)
     
     # Filter layers if specified
@@ -166,7 +174,8 @@ def main():
         checkpoint_dir=args.checkpoint_dir,
         checkpoint_interval=args.checkpoint_interval,
         enable_caching=args.enable_caching,
-        cache_dir=args.cache_dir
+        cache_dir=args.cache_dir,
+        config_path=args.config_path
     )
     
     # Step 5: Build final tiling configuration

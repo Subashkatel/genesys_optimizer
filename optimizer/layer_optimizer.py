@@ -9,45 +9,9 @@ from optimizer.tiling_generator import generate_tiling_configs, generate_all_til
 from optimizer.checkpoint import CheckpointManager
 from optimizer.cache import OptimizationCache
 from utils.logging_utils import setup_logging
+from compiler.layer_extractor import get_hardware_config_from_config_path, find_output_dir
 
 logger = setup_logging("genesys_optimizer.layer_optimizer")
-
-def get_hardware_config_from_config_path(config_path):
-    """
-    Extract hardware configuration from config filename.
-    
-    Args:
-        config_path: Path to the configuration file
-        
-    Returns:
-        Hardware configuration string (e.g., "genesys32x32")
-    """
-    config_filename = os.path.basename(config_path)
-    if "32_" in config_filename:
-        return "genesys32x32"
-    elif "16_" in config_filename:
-        return "genesys16x16"
-    else:
-        # Default if we can't determine
-        logger.warning(f"Could not determine hardware config from {config_filename}, using default")
-        return "genesys"
-
-def get_output_directory_name(model_name, exp_name, hardware_config=None):
-    """
-    Generate the correct output directory name including hardware configuration.
-    
-    Args:
-        model_name: Base model name
-        exp_name: Experiment name
-        hardware_config: Hardware configuration string
-        
-    Returns:
-        Directory name in the format used by the compiler
-    """
-    if hardware_config:
-        return f"{model_name}_{hardware_config}_{exp_name}"
-    else:
-        return f"{model_name}_{exp_name}"
 
 def optimize_layer(model_path, layer_name, layer_info, output_dir, sim_path, 
                    metric="totCycles", max_configs=10, compile_retries=3, sim_retries=2,
@@ -139,7 +103,7 @@ def optimize_layer(model_path, layer_name, layer_info, output_dir, sim_path,
             
             # Create the absolute path to the test output directory - including hardware config
             if hardware_config:
-                dir_name = get_output_directory_name(model_name, test_exp_name, hardware_config)
+                dir_name = f"{model_name}_{hardware_config}_{test_exp_name}"
             else:
                 dir_name = f"{model_name}_{test_exp_name}"
             

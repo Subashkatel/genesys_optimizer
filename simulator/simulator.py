@@ -2,6 +2,7 @@ import os
 import csv
 import time
 import logging
+import glob
 import subprocess
 from utils.logging_utils import setup_logging
 
@@ -21,16 +22,30 @@ def run_simulator(output_dir, layer_name, sim_path=None, metric_column=None, max
     else:
         full_output_dir = output_dir
     
-    wait_attempts = 5
-    wait_time = 0.5 # seconds
-    while wait_attempts > 0 and not os.path.exists(full_output_dir):
-        logger.info(f"Waiting for output directory to be created: {full_output_dir} (attempts left: {wait_attempts})")
+    # Increase wait attempts and initial wait time
+    wait_attempts = 15  # More attempts
+    wait_time = 1.0     # Longer initial wait
+    
+    while wait_attempts > 0:
+        if os.path.exists(full_output_dir):
+            # Check if directory is ready by verifying essential files exist
+            json_files = glob.glob(os.path.join(full_output_dir, layer_name, "*.json"))
+            config_files = glob.glob(os.path.join(full_output_dir, "configs", "*.json"))
+            if json_files and config_files:
+                # Directory exists and appears to have necessary files
+                break
+            else:
+                logger.info(f"Output directory exists but may not be ready: {full_output_dir} - waiting ({wait_attempts} attempts left)")
+        else:
+            logger.info(f"Waiting for output directory to be created: {full_output_dir} (attempts left: {wait_attempts})")
+        
         time.sleep(wait_time)
         wait_attempts -= 1
-        wait_time *= 2  # Exponential backoff
+        # More gradual backoff
+        wait_time = min(wait_time * 1.5, 5.0)  # Cap at 5 seconds
     
     if not os.path.exists(full_output_dir):
-        logger.error(f"Output directory does not exist: {full_output_dir}")
+        logger.error(f"Output directory does not exist after all attempts: {full_output_dir}")
         return None
 
     # Create a unique output filename
@@ -57,7 +72,7 @@ def run_simulator(output_dir, layer_name, sim_path=None, metric_column=None, max
             logger.info(f"Running simulator (attempt {attempt + 1}/{max_retries}) from {sim_path}: {' '.join(cmd)}")
             
             # Run the simulator
-            result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
             
             # Output CSV is in the simulator directory
             output_csv = os.path.join(sim_path, output_file)
@@ -65,10 +80,10 @@ def run_simulator(output_dir, layer_name, sim_path=None, metric_column=None, max
             os.chdir(current_dir)
 
             if not os.path.exists(output_csv):
-                logger.warning(f"Simulator output CSV file not found: {output_csv} (attemt{attempt +1})")
-                if attempt < max_retries -1:
-                    wait_time = 2** attempt
-                    logger.info(f"Retrying in {wait_time} secodds...")
+                logger.warning(f"Simulator output CSV file not found: {output_csv} (attempt {attempt +1})")
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    logger.info(f"Retrying in {wait_time} seconds...")
                     time.sleep(wait_time)
                     continue
                 else:
@@ -78,8 +93,7 @@ def run_simulator(output_dir, layer_name, sim_path=None, metric_column=None, max
             # Parse the results
             metrics = parse_simulator_output(output_csv, layer_name, metric_column)
             return metrics
-        except (subprocess.CalledProcessError, FileNotFoundError, IOError) as e:
-            
+        except (subprocess.CalledProcessError, FileNotFoundError, IOError, subprocess.TimeoutExpired) as e:
             os.chdir(current_dir)
             
             logger.warning(f"Simulator attempt {attempt+1} failed: {str(e)}")

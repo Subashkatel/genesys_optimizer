@@ -15,7 +15,7 @@ logger = setup_logging("genesys_optimizer.layer_optimizer")
 
 def optimize_layer(model_path, layer_name, layer_info, output_dir, sim_path, 
                    metric="totCycles", max_configs=10, compile_retries=3, sim_retries=2,
-                   model_name=None, optimization_cache=None, hardware_config=None):
+                   model_name=None, optimization_cache=None, hardware_config=None, config_path=None):
     """
     Optimize tiling configuration for a single layer.
     
@@ -32,6 +32,7 @@ def optimize_layer(model_path, layer_name, layer_info, output_dir, sim_path,
         model_name: Name of the model (derived from model_path if None)
         optimization_cache: Cache for optimization results (optional)
         hardware_config: Hardware configuration string (e.g., "genesys32x32")
+        config_path: Path to the hardware configuration file
         
     Returns:
         Tuple of (layer_name, best_config, best_metric, tiling_key)
@@ -94,9 +95,15 @@ def optimize_layer(model_path, layer_name, layer_info, output_dir, sim_path,
         
         test_exp_name = f"{layer_name}_test_{i}"
         try:
-            compile_success = compile_model(model_path, test_exp_name, 
-                                          tiling_config, 
-                                          max_retries=compile_retries)
+            # Fix parameter order - was passing parameters in wrong positions
+            compile_success = compile_model(
+                model_path=model_path,
+                config_path=config_path,  # Add the config path
+                experiment_name=test_exp_name,
+                tiling_config=tiling_config,
+                max_retries=compile_retries
+            )
+            
             if not compile_success:
                 logger.warning(f"Compilation failed for {layer_name} configuration {i+1} after all retries")
                 continue
@@ -229,7 +236,8 @@ def optimize_layers_parallel(model_path, layers_info, output_dir, sim_path,
             sim_retries=sim_retries,
             model_name=model_name,
             optimization_cache=optimization_cache,
-            hardware_config=hardware_config
+            hardware_config=hardware_config,
+            config_path=config_path  # Pass the config path
         )
     
     # Use ThreadPoolExecutor to parallelize layer optimization

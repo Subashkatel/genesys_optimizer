@@ -58,17 +58,24 @@ def compile_model(model_path, config_path, experiment_name, tiling_config=None, 
     else:
         cmd = ["compile-genesys", "-m", model_path, "-e", experiment_name]
     
-    config_path = None
-    # check if tilling_config dir exists if not create it
-    if not os.path.exists("tiling_config"):
-        os.makedirs("tiling_config")
+    tiling_file_path = None
+    # Create an absolute path to tiling_config directory
+    tiling_config_dir = os.path.abspath("tiling_config")
+    
+    # check if tiling_config dir exists if not create it
+    if not os.path.exists(tiling_config_dir):
+        os.makedirs(tiling_config_dir)
 
     if tiling_config:
-        # go inside the tiling_config directory to create the config file
-        config_path = os.path.join("tiling_config", f"tiling_{experiment_name}.json")
-        with open(config_path, "w") as f:
+        # Use absolute path for the tiling config file
+        tiling_file_name = f"tiling_{experiment_name}.json"
+        tiling_file_path = os.path.join(tiling_config_dir, tiling_file_name)
+        
+        with open(tiling_file_path, "w") as f:
             json.dump(tiling_config, f, indent=4)
-        cmd.extend(["-t", config_path])
+        
+        # Use absolute path in the command
+        cmd.extend(["-t", tiling_file_path])
     
 
     if fuse:

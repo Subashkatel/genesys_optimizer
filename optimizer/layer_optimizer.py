@@ -292,8 +292,131 @@ def optimize_layers_parallel(model_path, layers_info, output_dir, sim_path,
     
     logger.info(f"Added {total_tasks} configuration tasks to the queue")
     
+    # Track the best configuration for each layer
+    layer_best_configs = {}
+    
+    # Worker function to process tasks from the queue
+    def worker():
+        while True:
+            try:
+                # Get a task from the queue
+                task = task_queue.get(block=False)
+                layer_name = task['layer_name']
+                layer_info = task['layer_info']
+                tile_splits = task['tile_splits']
+                config_idx = task['config_idx']
+                total_configs = task['total_configs']
+                
+                logger.info(f"Testing configuration {config_idx+1}/{total_configs} for {layer_name}: {tile_splits}")
+                
+                # Create tiling config for this layer
+                tiling_key = layer_info["tiling_key"]
+                tiling_config = {tiling_key: {"1": tile_splits}}
+                
+                test_exp_name = f"{layer_name}_test_{config_idx}"
+                
+                try:
+                    # Compile the model with this configuration
+                    compile_success = compile_model(
+                        model_path=model_path,
+                        config_path=config_path,
+                        experiment_name=test_exp_name,
+                        tiling_config=tiling_config,
+                        max_retries=compile_retries
+                    )
+                    
+                    if not compile_success:
+                        logger.warning(f"Compilation failed for {layer_name} configuration {config_idx+1}")
+                        task_queue.task_done()
+                        continue
+                    
+                    # Create the output directory path
+                    if hardware_config:
+                        dir_name = f"{model_name}_{hardware_config}_{test_exp_name}"
+                    else:
+                        dir_name = f"{model_name}_{test_exp_name}"
+                    
+                    test_output_dir = os.path.join(output_dir, dir_name)
+                    
+                    # Run the simulator
+                    metrics = run_simulator(test_output_dir, layer_name, sim_path, max_retries=sim_retries)
+                    
+                    if metrics is None:
+                        logger.warning(f"Failed to get metrics for {layer_name} configuration {config_idx+1}")
+                        task_queue.task_done()
+                        continue
+                    
+                    # Extract the metric value
+                    metric_value = metrics.get(metric) if isinstance(metrics, dict) else metrics
+                    
+                    if metric_value is None:
+                        logger.error(f"Requested metric {metric} not found for {layer_name}")
+                        task_queue.task_done()
+                        continue
+                    
+                    # Add result to result queue
+                    result_queue.put({
+                        'layer_name': layer_name,
+                        'tiling_key': tiling_key,
+                        'tile_splits': tile_splits,
+                        'metric_value': metric_value
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Error testing {layer_name} configuration {config_idx+1}: {str(e)}")
+                
+                task_queue.task_done()
+                
+            except queue.Empty:
+                # No more tasks in queue
+                break
+    
+    # Process result queue and update best configurations
+    def result_processor():
+        last_checkpoint_save = time.time()
+        
+        while True:
+            try:
+                # Process any available results
+                result = result_queue.get(block=False)
+                layer_name = result['layer_name']
+                tiling_key = result['tiling_key']
+                tile_splits = result['tile_splits']
+                metric_value = result['metric_value']
+                
+                # Check if this is better than current best
+                if layer_name not in layer_best_configs or metric_value < layer_best_configs[layer_name]['best_metric']:
+                    logger.info(f"New best configuration for {layer_name} with {metric} = {metric_value}")
+                    layer_best_configs[layer_name] = {
+                        'best_config': tile_splits,
+                        'best_metric': metric_value,
+                        'tiling_key': tiling_key
+                    }
+                    
+                    # Update results dictionary
+                    results[layer_name] = layer_best_configs[layer_name]
+                    
+                    # Save checkpoint on each improvement
+                    checkpoint_manager.update_layer_result(layer_name, layer_best_configs[layer_name])
+                    last_checkpoint_save = time.time()
+                
+                result_queue.task_done()
+                
+            except queue.Empty:
+                # No results to process, check if we should save checkpoint
+                current_time = time.time()
+                if current_time - last_checkpoint_save >= checkpoint_interval and layer_best_configs:
+                    checkpoint_manager.save_checkpoint(force=True)
+                    last_checkpoint_save = current_time
+                
+                # Check if we're done (no tasks and no results pending)
+                if task_queue.empty() and result_queue.empty():
+                    break
+                
+                # Brief pause to avoid CPU spinning
+                time.sleep(0.1)
+    
     # Calculate number of workers to use - handle the case when max_workers is None
-    # Limit the number of workers to avoid overwhelming the system
     if max_workers is None:
         # Default is min(32, os.cpu_count() + 4)
         cpu_count = os.cpu_count() or 4
@@ -309,7 +432,6 @@ def optimize_layers_parallel(model_path, layers_info, output_dir, sim_path,
     with concurrent.futures.ThreadPoolExecutor(max_workers=actual_workers) as executor:
         # Start workers - reserve 1 thread for the result processor
         worker_count = max(1, actual_workers - 1)
-        # FIX: Use range() to iterate over worker_count times
         workers = [executor.submit(worker) for _ in range(worker_count)]
         
         # Start result processor in the executor too

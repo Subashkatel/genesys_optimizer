@@ -163,7 +163,7 @@ def optimize_layer(model_path, layer_name, layer_info, output_dir, sim_path,
 def optimize_layers_parallel(model_path, layers_info, output_dir, sim_path, 
                            metric="totCycles", max_configs_per_layer=10, 
                            compile_retries=3, sim_retries=2, max_workers=None,
-                           checkpoint_dir="checkpoints", checkpoint_interval=60,  # Reduced interval
+                           checkpoint_dir="checkpoints", checkpoint_interval=60,
                            enable_caching=True, cache_dir="layer_cache",
                            config_path=None):
     """
@@ -398,10 +398,15 @@ def optimize_layers_parallel(model_path, layers_info, output_dir, sim_path,
                 # Brief pause to avoid CPU spinning
                 time.sleep(0.1)
     
+    # Calculate number of workers to use - handle the case when max_workers is None
+    actual_workers = max_workers or min(32, os.cpu_count() + 4)
+    logger.info(f"Using {actual_workers} worker threads for optimization")
+    
     # Use ThreadPoolExecutor for workers
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Start workers
-        workers = [executor.submit(worker) for _ in range(executor.max_workers - 1)]
+        # Start workers - reserve 1 thread for the result processor
+        worker_count = max(1, actual_workers - 1)
+        workers = [executor.submit(worker) for _ in range(worker_count)]
         
         # Start result processor in the executor too
         result_processor_future = executor.submit(result_processor)

@@ -3,6 +3,8 @@
 import os
 import logging
 import concurrent.futures
+import time
+import queue
 from compiler.model_compiler import compile_model
 from simulator.simulator import run_simulator
 from optimizer.tiling_generator import generate_tiling_configs, generate_all_tiling_configs
@@ -161,7 +163,7 @@ def optimize_layer(model_path, layer_name, layer_info, output_dir, sim_path,
 def optimize_layers_parallel(model_path, layers_info, output_dir, sim_path, 
                            metric="totCycles", max_configs_per_layer=10, 
                            compile_retries=3, sim_retries=2, max_workers=None,
-                           checkpoint_dir="checkpoints", checkpoint_interval=300,
+                           checkpoint_dir="checkpoints", checkpoint_interval=60,  # Reduced interval
                            enable_caching=True, cache_dir="layer_cache",
                            config_path=None):
     """
@@ -188,83 +190,236 @@ def optimize_layers_parallel(model_path, layers_info, output_dir, sim_path,
     """
     model_name = os.path.basename(model_path).split('.')[0]
     
+    # Make checkpoint and cache directories absolute if they're relative
+    if not os.path.isabs(checkpoint_dir):
+        checkpoint_dir = os.path.abspath(checkpoint_dir)
+    if not os.path.isabs(cache_dir):
+        cache_dir = os.path.abspath(cache_dir)
+    
     # Extract hardware configuration from config path if available
     hardware_config = None
     if config_path:
         hardware_config = get_hardware_config_from_config_path(config_path)
         logger.info(f"Using hardware configuration: {hardware_config}")
     
-    # Initialize checkpoint manager - only for saving progress, no need to load
+    # Initialize checkpoint manager with frequent saves
     checkpoint_manager = CheckpointManager(model_name, checkpoint_dir)
     checkpoint_manager.set_save_interval(checkpoint_interval)
+    logger.info(f"Using checkpoint directory: {checkpoint_dir} with interval {checkpoint_interval}s")
     
     # Initialize layer cache if enabled
     optimization_cache = None
     if enable_caching:
         optimization_cache = OptimizationCache(model_name, cache_dir)
-        logger.info("Layer similarity caching enabled")
+        logger.info(f"Layer similarity caching enabled using directory: {cache_dir}")
     
-    # Initialize empty results dictionary
-    results = {}
+    # Initialize results dictionary with any existing checkpoint data
+    results = checkpoint_manager.load_checkpoint()
+    has_checkpoint = bool(results)
     
-    # Calculate total configurations to be tested across all layers
-    total_configs = 0
-    for _, layer_info in layers_info:
-        if max_configs_per_layer < 0:
-            # For exhaustive search, estimate the total configurations
-            dims_with_factors = sum(1 for _, size in layer_info["dimensions"].items() if size > 1)
-            # Rough estimate - actual numbers will be displayed during execution
-            total_configs += 2 ** dims_with_factors  
-        else:
-            total_configs += min(max_configs_per_layer, 
-                                len(generate_tiling_configs(layer_info, max_configs_per_layer)))
+    if has_checkpoint:
+        logger.info(f"Resuming optimization from checkpoint with {len(results)} completed layers")
+        # Filter out layers that are already optimized
+        layers_info = [(name, info) for name, info in layers_info if name not in results]
+        logger.info(f"Remaining layers to optimize: {len(layers_info)}")
     
-    logger.info(f"Total configurations to test: ~{total_configs} (approximate)")
+    # Group layers by operation type for better cache locality
+    grouped_layers = {}
+    for layer_name, layer_info in layers_info:
+        op_type = layer_info.get("operation")
+        if op_type not in grouped_layers:
+            grouped_layers[op_type] = []
+        grouped_layers[op_type].append((layer_name, layer_info))
     
-    # Define a function to optimize a single layer for use with ThreadPoolExecutor
-    def optimize_layer_wrapper(layer_data):
-        layer_name, layer_info = layer_data
-        return optimize_layer(
-            model_path=model_path,
-            layer_name=layer_name,
-            layer_info=layer_info,
-            output_dir=output_dir,
-            sim_path=sim_path,
-            metric=metric,
-            max_configs=max_configs_per_layer,
-            compile_retries=compile_retries,
-            sim_retries=sim_retries,
-            model_name=model_name,
-            optimization_cache=optimization_cache,
-            hardware_config=hardware_config,
-            config_path=config_path  # Pass the config path
+    # Sort operations by estimated complexity (number of configs)
+    operation_complexity = []
+    for op_type, op_layers in grouped_layers.items():
+        total_configs = sum(
+            max_configs_per_layer if max_configs_per_layer > 0 else 
+            len(generate_all_tiling_configs(layer_info)) 
+            for _, layer_info in op_layers
         )
+        operation_complexity.append((op_type, total_configs))
     
-    # Use ThreadPoolExecutor to parallelize layer optimization
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all optimization tasks
-        future_to_layer = {
-            executor.submit(optimize_layer_wrapper, (layer_name, layer_info)): layer_name
-            for layer_name, layer_info in layers_info
-        }
+    # Sort operations by complexity in descending order
+    sorted_operations = sorted(operation_complexity, key=lambda x: x[1], reverse=True)
+    
+    # Create a prioritized list of layers
+    prioritized_layers = []
+    for op_type, _ in sorted_operations:
+        prioritized_layers.extend(grouped_layers[op_type])
+    
+    # Now use a shared queue for all workers for better load balancing
+    task_queue = queue.Queue()
+    result_queue = queue.Queue()
+    
+    # Add all layer optimization tasks to the queue
+    for layer_idx, (layer_name, layer_info) in enumerate(prioritized_layers):
+        # Generate configurations for this layer
+        if max_configs_per_layer < 0:
+            configs = generate_all_tiling_configs(layer_info)
+        else:
+            configs = generate_tiling_configs(layer_info, max_configs_per_layer)
         
-        # Process results as they complete
-        for future in concurrent.futures.as_completed(future_to_layer):
-            layer_name = future_to_layer[future]
+        # Add each configuration test as a task
+        for i, tile_splits in enumerate(configs):
+            task_queue.put({
+                'layer_name': layer_name,
+                'layer_info': layer_info,
+                'tile_splits': tile_splits,
+                'config_idx': i,
+                'total_configs': len(configs),
+                'priority': layer_idx  # Lower is higher priority
+            })
+    
+    logger.info(f"Added {task_queue.qsize()} configuration tasks to the queue")
+    
+    # Track the best configuration for each layer
+    layer_best_configs = {}
+    
+    # Worker function to process tasks from the queue
+    def worker():
+        while True:
             try:
-                layer_name, best_config, best_metric, tiling_key = future.result()
-                if best_config is not None:
-                    layer_result = {
-                        "best_config": best_config,
-                        "best_metric": best_metric,
-                        "tiling_key": tiling_key
+                # Get a task from the queue
+                task = task_queue.get(block=False)
+                layer_name = task['layer_name']
+                layer_info = task['layer_info']
+                tile_splits = task['tile_splits']
+                config_idx = task['config_idx']
+                total_configs = task['total_configs']
+                
+                logger.info(f"Testing configuration {config_idx+1}/{total_configs} for {layer_name}: {tile_splits}")
+                
+                # Create tiling config for this layer
+                tiling_key = layer_info["tiling_key"]
+                tiling_config = {tiling_key: {"1": tile_splits}}
+                
+                test_exp_name = f"{layer_name}_test_{config_idx}"
+                
+                try:
+                    # Compile the model with this configuration
+                    compile_success = compile_model(
+                        model_path=model_path,
+                        config_path=config_path,
+                        experiment_name=test_exp_name,
+                        tiling_config=tiling_config,
+                        max_retries=compile_retries
+                    )
+                    
+                    if not compile_success:
+                        logger.warning(f"Compilation failed for {layer_name} configuration {config_idx+1}")
+                        task_queue.task_done()
+                        continue
+                    
+                    # Create the output directory path
+                    if hardware_config:
+                        dir_name = f"{model_name}_{hardware_config}_{test_exp_name}"
+                    else:
+                        dir_name = f"{model_name}_{test_exp_name}"
+                    
+                    test_output_dir = os.path.join(output_dir, dir_name)
+                    
+                    # Run the simulator
+                    metrics = run_simulator(test_output_dir, layer_name, sim_path, max_retries=sim_retries)
+                    
+                    if metrics is None:
+                        logger.warning(f"Failed to get metrics for {layer_name} configuration {config_idx+1}")
+                        task_queue.task_done()
+                        continue
+                    
+                    # Extract the metric value
+                    metric_value = metrics.get(metric) if isinstance(metrics, dict) else metrics
+                    
+                    if metric_value is None:
+                        logger.error(f"Requested metric {metric} not found for {layer_name}")
+                        task_queue.task_done()
+                        continue
+                    
+                    # Add result to result queue
+                    result_queue.put({
+                        'layer_name': layer_name,
+                        'tiling_key': tiling_key,
+                        'tile_splits': tile_splits,
+                        'metric_value': metric_value
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Error testing {layer_name} configuration {config_idx+1}: {str(e)}")
+                
+                task_queue.task_done()
+                
+            except queue.Empty:
+                # No more tasks in queue
+                break
+    
+    # Process result queue and update best configurations
+    def result_processor():
+        last_checkpoint_save = time.time()
+        
+        while True:
+            try:
+                # Process any available results
+                result = result_queue.get(block=False)
+                layer_name = result['layer_name']
+                tiling_key = result['tiling_key']
+                tile_splits = result['tile_splits']
+                metric_value = result['metric_value']
+                
+                # Check if this is better than current best
+                if layer_name not in layer_best_configs or metric_value < layer_best_configs[layer_name]['best_metric']:
+                    logger.info(f"New best configuration for {layer_name} with {metric} = {metric_value}")
+                    layer_best_configs[layer_name] = {
+                        'best_config': tile_splits,
+                        'best_metric': metric_value,
+                        'tiling_key': tiling_key
                     }
-                    # Update results dictionary and checkpoint
-                    results[layer_name] = layer_result
-                    checkpoint_manager.update_layer_result(layer_name, layer_result)
-                    logger.info(f"Layer {layer_name} optimization completed and saved to checkpoint")
+                    
+                    # Update results dictionary
+                    results[layer_name] = layer_best_configs[layer_name]
+                    
+                    # Save checkpoint on each improvement
+                    checkpoint_manager.update_layer_result(layer_name, layer_best_configs[layer_name])
+                    last_checkpoint_save = time.time()
+                
+                result_queue.task_done()
+                
+            except queue.Empty:
+                # No results to process, check if we should save checkpoint
+                current_time = time.time()
+                if current_time - last_checkpoint_save >= checkpoint_interval and layer_best_configs:
+                    checkpoint_manager.save_checkpoint(force=True)
+                    last_checkpoint_save = current_time
+                
+                # Check if we're done (no tasks and no results pending)
+                if task_queue.empty() and result_queue.empty():
+                    break
+                
+                # Brief pause to avoid CPU spinning
+                time.sleep(0.1)
+    
+    # Use ThreadPoolExecutor for workers
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Start workers
+        workers = [executor.submit(worker) for _ in range(executor.max_workers - 1)]
+        
+        # Start result processor in the executor too
+        result_processor_future = executor.submit(result_processor)
+        
+        # Wait for all tasks to complete
+        for future in concurrent.futures.as_completed(workers + [result_processor_future]):
+            try:
+                future.result()
             except Exception as e:
-                logger.error(f"Layer optimization for {layer_name} failed with error: {str(e)}")
+                logger.error(f"Worker thread failed with error: {str(e)}")
+    
+    # Cache the optimized configurations
+    if enable_caching:
+        for layer_name, best_result in layer_best_configs.items():
+            for layer_name_orig, layer_info_orig in layers_info:
+                if layer_name_orig == layer_name:
+                    optimization_cache.add_to_cache(layer_info_orig, best_result)
+                    break
     
     # Ensure final checkpoint is saved
     checkpoint_manager.save_checkpoint(force=True)

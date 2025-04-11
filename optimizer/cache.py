@@ -1,26 +1,3 @@
-# The caching system in our optimizer is designed to avoid redundant work by recognizing when layers have similar structures, which is common in modern neural networks. Let me explain with some examples:
-
-# Consider a ResNet model with multiple residual blocks that have identical structure but different names:
-
-# Without caching:
-
-# Optimizer would generate tiling configurations for layer1_conv1
-# Compile and simulate each configuration (~10 compilations/simulations)
-# Repeat the exact same process for layer2_conv1 and layer3_conv1
-# Total: ~30 compilations and simulations
-# With caching:
-
-# Optimizer generates a fingerprint for layer1_conv1 based on:
-# Optimizer compiles and simulates configurations for layer1_conv1
-# Finds the best configuration: {"OC": 32, "N": 1, "IC": 1, "KH": 1, "KW": 1, "OH": 14, "OW": 14}
-# Caches this result with the fingerprint as key
-# When processing layer2_conv1:
-# Generates the same fingerprint (since the structure is identical)
-# Finds a match in the cache
-# Reuses the result without any compilation or simulation
-# Same for layer3_conv1
-# Total: ~10 compilations and simulations (just for the first layer)
-
 import os
 import json
 import logging
@@ -53,6 +30,7 @@ class OptimizationCache:
         
         # Load existing cache if available
         self._load_cache()
+        logger.info(f"Cache initialized for model {model_name} with {len(self.cache)} entries")
     
     def _load_cache(self):
         """Load existing cache if available."""
@@ -60,9 +38,9 @@ class OptimizationCache:
             try:
                 with open(self.cache_file, 'r') as f:
                     self.cache = json.load(f)
-                logger.info(f"Loaded layer cache with {len(self.cache)} entries")
+                logger.info(f"Loaded layer cache with {len(self.cache)} entries from {self.cache_file}")
             except (json.JSONDecodeError, IOError) as e:
-                logger.warning(f"Failed to load cache file: {str(e)}")
+                logger.warning(f"Failed to load cache file ({self.cache_file}): {str(e)}")
                 self.cache = {}
     
     def _save_cache(self):
@@ -71,12 +49,18 @@ class OptimizationCache:
             # Ensure cache directory exists
             os.makedirs(self.cache_dir, exist_ok=True)
             
-            with open(self.cache_file, 'w') as f:
+            # Write to temporary file first
+            temp_file = f"{self.cache_file}.tmp"
+            with open(temp_file, 'w') as f:
                 json.dump(self.cache, f, indent=2)
-            logger.info(f"Cache saved with {len(self.cache)} entries")
+            
+            # Replace old cache with new one (atomic operation on most filesystems)
+            os.replace(temp_file, self.cache_file)
+            
+            logger.info(f"Cache saved with {len(self.cache)} entries to {self.cache_file}")
             return True
         except (IOError, OSError) as e:
-            logger.error(f"Failed to save cache: {str(e)}")
+            logger.error(f"Failed to save cache to {self.cache_file}: {str(e)}")
             return False
     
     def generate_layer_fingerprint(self, layer_info):
@@ -117,6 +101,10 @@ class OptimizationCache:
         Returns:
             Cached optimization result or None if not found
         """
+        if not layer_info:
+            logger.warning("Cannot get cached result for empty layer_info")
+            return None
+            
         fingerprint = self.generate_layer_fingerprint(layer_info)
         if fingerprint in self.cache:
             cached_entry = self.cache[fingerprint]
@@ -137,10 +125,15 @@ class OptimizationCache:
         Returns:
             True if successfully added to cache, False otherwise
         """
+        if not layer_info or not optimization_result:
+            logger.warning("Cannot add empty layer_info or optimization_result to cache")
+            return False
+            
         fingerprint = self.generate_layer_fingerprint(layer_info)
         
         # Store in memory cache
         self.cache[fingerprint] = optimization_result
+        logger.info(f"Added result to cache with fingerprint {fingerprint[:8]}")
         
         # Save updated cache to disk
         return self._save_cache()
@@ -151,9 +144,9 @@ class OptimizationCache:
         if os.path.exists(self.cache_file):
             try:
                 os.remove(self.cache_file)
-                logger.info("Cache file cleared")
+                logger.info(f"Cache file cleared: {self.cache_file}")
                 return True
             except OSError as e:
-                logger.error(f"Failed to delete cache file: {str(e)}")
+                logger.error(f"Failed to delete cache file {self.cache_file}: {str(e)}")
                 return False
         return True

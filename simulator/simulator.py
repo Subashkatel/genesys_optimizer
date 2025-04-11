@@ -4,9 +4,42 @@ import time
 import logging
 import glob
 import subprocess
+import threading
 from utils.logging_utils import setup_logging
 
 logger = setup_logging("genesys_optimizer.simulator")
+
+def check_output_readiness(full_output_dir, layer_name, timeout=60):
+    """
+    Monitor output directory until it's ready for simulation or timeout occurs.
+    
+    Args:
+        full_output_dir: Absolute path to output directory
+        layer_name: Name of the layer
+        timeout: Maximum seconds to wait
+        
+    Returns:
+        Boolean indicating if directory is ready
+    """
+    start_time = time.time()
+    poll_interval = 0.5  # Start with 0.5 second between checks
+    
+    while (time.time() - start_time) < timeout:
+        if os.path.exists(full_output_dir):
+            # Check if directory is ready by verifying essential files exist
+            json_files = glob.glob(os.path.join(full_output_dir, layer_name, "*.json"))
+            config_files = glob.glob(os.path.join(full_output_dir, "configs", "*.json"))
+            
+            if json_files and config_files:
+                logger.info(f"Output directory ready for simulation: {full_output_dir}")
+                return True
+                
+        # Adaptive polling interval - increase over time but cap at 2 seconds
+        poll_interval = min(poll_interval * 1.2, 2.0)
+        time.sleep(poll_interval)
+    
+    logger.error(f"Timed out waiting for output directory: {full_output_dir}")
+    return False
 
 def run_simulator(output_dir, layer_name, sim_path=None, metric_column=None, max_retries=2):
     """Run the simulator on a compiled layer and get performance metrics."""
@@ -22,30 +55,8 @@ def run_simulator(output_dir, layer_name, sim_path=None, metric_column=None, max
     else:
         full_output_dir = output_dir
     
-    # Increase wait attempts and initial wait time
-    wait_attempts = 15  # More attempts
-    wait_time = 1.0     # Longer initial wait
-    
-    while wait_attempts > 0:
-        if os.path.exists(full_output_dir):
-            # Check if directory is ready by verifying essential files exist
-            json_files = glob.glob(os.path.join(full_output_dir, layer_name, "*.json"))
-            config_files = glob.glob(os.path.join(full_output_dir, "configs", "*.json"))
-            if json_files and config_files:
-                # Directory exists and appears to have necessary files
-                break
-            else:
-                logger.info(f"Output directory exists but may not be ready: {full_output_dir} - waiting ({wait_attempts} attempts left)")
-        else:
-            logger.info(f"Waiting for output directory to be created: {full_output_dir} (attempts left: {wait_attempts})")
-        
-        time.sleep(wait_time)
-        wait_attempts -= 1
-        # More gradual backoff
-        wait_time = min(wait_time * 1.5, 5.0)  # Cap at 5 seconds
-    
-    if not os.path.exists(full_output_dir):
-        logger.error(f"Output directory does not exist after all attempts: {full_output_dir}")
+    # Use the improved directory readiness check
+    if not check_output_readiness(full_output_dir, layer_name):
         return None
 
     # Create a unique output filename
@@ -71,7 +82,7 @@ def run_simulator(output_dir, layer_name, sim_path=None, metric_column=None, max
             os.chdir(sim_path)
             logger.info(f"Running simulator (attempt {attempt + 1}/{max_retries}) from {sim_path}: {' '.join(cmd)}")
             
-            # Run the simulator
+            # Run the simulator with timeout
             result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
             
             # Output CSV is in the simulator directory

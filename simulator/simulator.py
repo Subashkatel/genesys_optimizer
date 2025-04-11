@@ -35,9 +35,8 @@ def check_output_readiness(full_output_dir, layer_name, timeout=60):
         if os.path.exists(full_output_dir):
             # Check if directory is ready by verifying essential files exist
             json_files = glob.glob(os.path.join(full_output_dir, layer_name, "*.json"))
-            config_files = glob.glob(os.path.join(full_output_dir, "configs", "*.json"))
             
-            if json_files and config_files:
+            if json_files:
                 logger.info(f"Output directory ready for simulation: {full_output_dir}")
                 return True
                 
@@ -65,14 +64,13 @@ def run_simulator(output_dir, layer_name, sim_path=None, metric_column=None, max
             full_output_dir = output_dir
         
         # Initial delay before checking for directory
-        # This gives time for the compilation to actually create the output directory
-        initial_delay = 5.0  # Increased from 2.0 to 5.0 seconds
+        initial_delay = 5.0  # seconds
         logger.info(f"Waiting {initial_delay} seconds before checking for output directory")
         time.sleep(initial_delay)
         
         # Improved exponential backoff for directory readiness
-        max_attempts = 15  # Increased from 10 to 15
-        wait_time = 2.0    # Increased initial wait
+        max_attempts = 15
+        wait_time = 2.0
         total_wait_time = initial_delay
         
         for attempt in range(max_attempts):
@@ -80,22 +78,20 @@ def run_simulator(output_dir, layer_name, sim_path=None, metric_column=None, max
                 # More thorough verification of directory readiness
                 layer_dir = os.path.join(full_output_dir, layer_name)
                 if os.path.exists(layer_dir):
-                    # Check if the directory actually has content (not just created)
+                    # Check if the directory actually has content - ONLY check for layer JSON files
                     json_files = glob.glob(os.path.join(layer_dir, "*.json"))
-                    config_dir = os.path.join(full_output_dir, "configs")
-                    config_files = glob.glob(os.path.join(config_dir, "*.json")) if os.path.exists(config_dir) else []
                     
-                    if json_files and config_files:
-                        logger.info(f"Output directory is ready after {total_wait_time:.1f}s: {full_output_dir}")
+                    if json_files:
+                        logger.info(f"Layer directory is ready with {len(json_files)} JSON files after {total_wait_time:.1f}s")
                         break
                     else:
-                        logger.info(f"Output directory exists but missing required files - layer dir has {len(json_files)} json files, config dir has {len(config_files)} config files")
+                        logger.info(f"Layer directory exists but missing required JSON files")
             
             # Wait with exponential backoff
             logger.info(f"Waiting for output directory (attempt {attempt+1}/{max_attempts}): {full_output_dir}")
             time.sleep(wait_time)
             total_wait_time += wait_time
-            wait_time = min(wait_time * 1.5, 10.0)  # Cap at 10 seconds, increased from 8
+            wait_time = min(wait_time * 1.5, 10.0)
             
             if attempt == max_attempts - 1:
                 logger.error(f"Output directory not ready after {max_attempts} attempts ({total_wait_time:.1f}s total): {full_output_dir}")
@@ -106,12 +102,6 @@ def run_simulator(output_dir, layer_name, sim_path=None, metric_column=None, max
                     if os.path.exists(layer_dir):
                         files = os.listdir(layer_dir)
                         logger.error(f"Layer directory contents: {files}")
-                    
-                    config_dir = os.path.join(full_output_dir, "configs")
-                    logger.error(f"Config directory exists: {os.path.exists(config_dir)}")
-                    if os.path.exists(config_dir):
-                        files = os.listdir(config_dir)
-                        logger.error(f"Config directory contents: {files}")
                 return None
         
         # Create a unique output filename with unique timestamp to avoid collisions
@@ -119,7 +109,8 @@ def run_simulator(output_dir, layer_name, sim_path=None, metric_column=None, max
         timestamp = int(time.time() * 1000)  # Milliseconds for uniqueness
         output_file = f"{model_name}_{timestamp}_simulation_results.csv"
         
-        # Construct the simulator command
+        # Construct the simulator command - the "configs/" reference here is part of the simulator's 
+        # command line interface, not necessarily a directory that needs to exist in our output folder
         cmd = [
             "python3", 
             "-m", 

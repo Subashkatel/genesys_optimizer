@@ -46,12 +46,7 @@ def prepare_model(model_path, max_retries = 0) -> bool:
 
 
 def compile_model(model_path, config_path, experiment_name, tiling_config=None, fuse=False, max_retries = 1) -> bool:
-    """Compile the model after the model has been prepared for compilation.
-
-    Args:
-        model_path (_type_): _description_
-        max_tries (int, optional): _description_. Defaults to 1.
-    """
+    """Compile the model after the model has been prepared for compilation."""
     # Use semaphore to limit concurrent compilations
     with compile_semaphore:
         model_path = os.path.abspath(model_path)
@@ -110,9 +105,11 @@ def compile_model(model_path, config_path, experiment_name, tiling_config=None, 
                     logger.error(f" Failed to compile the model after {max_retries} attempts.")
         
         if success:
-            # After successful compilation, wait briefly to ensure output directory is properly created
+            # After successful compilation, wait longer to ensure output directory is properly created
             # before letting the semaphore go
-            time.sleep(1)
+            completion_wait = 3.0  # Increased from 1.0 to 3.0 seconds
+            logger.info(f"Compilation successful. Waiting {completion_wait} seconds for file writing to complete...")
+            time.sleep(completion_wait)
             return True
         return False
 

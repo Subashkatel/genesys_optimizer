@@ -420,8 +420,9 @@ def optimize_layers_parallel(model_path, layers_info, output_dir, sim_path,
     if max_workers is None:
         # Default is min(32, os.cpu_count() + 4)
         cpu_count = os.cpu_count() or 4
-        # Use fewer workers to avoid system overload
-        recommended_workers = min(8, max(1, cpu_count // 2))
+        # Use fewer workers to avoid system overload and directory contention
+        # Reduce from 8 to 4 to prevent too many concurrent compilations
+        recommended_workers = min(4, max(1, cpu_count // 4))
         actual_workers = recommended_workers
     else:
         actual_workers = max_workers

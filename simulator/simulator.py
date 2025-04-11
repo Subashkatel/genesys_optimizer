@@ -66,33 +66,52 @@ def run_simulator(output_dir, layer_name, sim_path=None, metric_column=None, max
         
         # Initial delay before checking for directory
         # This gives time for the compilation to actually create the output directory
-        initial_delay = 2.0  # seconds
+        initial_delay = 5.0  # Increased from 2.0 to 5.0 seconds
         logger.info(f"Waiting {initial_delay} seconds before checking for output directory")
         time.sleep(initial_delay)
         
         # Improved exponential backoff for directory readiness
-        max_attempts = 10  # Increased from 8
-        wait_time = 1.0    # Longer initial wait
+        max_attempts = 15  # Increased from 10 to 15
+        wait_time = 2.0    # Increased initial wait
+        total_wait_time = initial_delay
         
         for attempt in range(max_attempts):
             if os.path.exists(full_output_dir):
                 # More thorough verification of directory readiness
                 layer_dir = os.path.join(full_output_dir, layer_name)
                 if os.path.exists(layer_dir):
+                    # Check if the directory actually has content (not just created)
                     json_files = glob.glob(os.path.join(layer_dir, "*.json"))
                     config_dir = os.path.join(full_output_dir, "configs")
+                    config_files = glob.glob(os.path.join(config_dir, "*.json")) if os.path.exists(config_dir) else []
                     
-                    if json_files and os.path.exists(config_dir):
-                        logger.info(f"Output directory is ready: {full_output_dir}")
+                    if json_files and config_files:
+                        logger.info(f"Output directory is ready after {total_wait_time:.1f}s: {full_output_dir}")
                         break
+                    else:
+                        logger.info(f"Output directory exists but missing required files - layer dir has {len(json_files)} json files, config dir has {len(config_files)} config files")
             
             # Wait with exponential backoff
             logger.info(f"Waiting for output directory (attempt {attempt+1}/{max_attempts}): {full_output_dir}")
             time.sleep(wait_time)
-            wait_time = min(wait_time * 1.5, 8.0)  # Cap at 8 seconds, but allow longer waits
+            total_wait_time += wait_time
+            wait_time = min(wait_time * 1.5, 10.0)  # Cap at 10 seconds, increased from 8
             
             if attempt == max_attempts - 1:
-                logger.error(f"Output directory not ready after {max_attempts} attempts: {full_output_dir}")
+                logger.error(f"Output directory not ready after {max_attempts} attempts ({total_wait_time:.1f}s total): {full_output_dir}")
+                if os.path.exists(full_output_dir):
+                    # Log what's actually in the directory for debugging
+                    layer_dir = os.path.join(full_output_dir, layer_name)
+                    logger.error(f"Layer directory exists: {os.path.exists(layer_dir)}")
+                    if os.path.exists(layer_dir):
+                        files = os.listdir(layer_dir)
+                        logger.error(f"Layer directory contents: {files}")
+                    
+                    config_dir = os.path.join(full_output_dir, "configs")
+                    logger.error(f"Config directory exists: {os.path.exists(config_dir)}")
+                    if os.path.exists(config_dir):
+                        files = os.listdir(config_dir)
+                        logger.error(f"Config directory contents: {files}")
                 return None
         
         # Create a unique output filename with unique timestamp to avoid collisions

@@ -309,7 +309,8 @@ def optimize_layers_parallel(model_path, layers_info, output_dir, sim_path,
     with concurrent.futures.ThreadPoolExecutor(max_workers=actual_workers) as executor:
         # Start workers - reserve 1 thread for the result processor
         worker_count = max(1, actual_workers - 1)
-        workers = [executor.submit(worker) for _ in worker_count]
+        # FIX: Use range() to iterate over worker_count times
+        workers = [executor.submit(worker) for _ in range(worker_count)]
         
         # Start result processor in the executor too
         result_processor_future = executor.submit(result_processor)

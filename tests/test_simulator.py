@@ -1,8 +1,10 @@
 import os
 import unittest
 import tempfile
+import shutil
+import json
 from unittest.mock import patch, MagicMock
-from simulator.simulator import run_simulator, parse_simulator_output
+from simulator.simulator import run_simulator, parse_simulator_output, parse_layer_output_files
 
 class TestSimulator(unittest.TestCase):
     """Test the simulator integration."""
@@ -14,15 +16,14 @@ class TestSimulator(unittest.TestCase):
         self.layer_name = "test_layer"
         self.sim_path = "/path/to/simulator"  # Mock path
         
-        # Sample CSV data that the simulator might produce
-        self.sample_csv_data = [
-            ["index", "layerName", "totCycles", "totTime(us)", "utilization"],
-            ["0", "test_layer", "1200", "8.5", "0.75"]
-        ]
-    
+        # Path to the test metrics file
+        self.test_metrics_file = os.path.join(
+            os.path.dirname(__file__), 
+            "test_metric.csv"
+        )
+        
     def tearDown(self):
         """Clean up temporary files."""
-        import shutil
         shutil.rmtree(self.temp_dir)
     
     @patch('simulator.simulator.subprocess.run')
@@ -53,19 +54,86 @@ class TestSimulator(unittest.TestCase):
         # Verify correct result was returned
         self.assertEqual(result, {"totCycles": 1000, "totTime(us)": 2.5})
     
-    def test_parse_simulator_output_valid_csv(self):
-        """Test parsing a valid simulator output CSV."""
-        # Create a temporary CSV file
-        csv_path = os.path.join(self.temp_dir, "simulation_results.csv")
-        with open(csv_path, 'w') as f:
-            for row in self.sample_csv_data:
-                f.write(','.join(row) + '\n')
+    def test_parse_simulator_output_with_test_metrics(self):
+        """Test parsing metrics from the test metrics file."""
+        # Skip if test metrics file doesn't exist
+        if not os.path.exists(self.test_metrics_file):
+            self.skipTest(f"Test metrics file not found: {self.test_metrics_file}")
+            
+        # Test with different layers from the metrics file
+        test_cases = [
+            # Layer name, expected totCycles, expected totTime
+            ("layer88_conv_bias89", 108798.0, 108.798),
+            ("layer3_conv_bias4", 1731191.0, 1731.191),
+            ("layer64_conv_bias65", 3336382.0, 3336.382),
+            ("layer8_elem_add4d4d9", 512000.0, 512.0),
+            ("layer49_elem_add4d4d50", 128000.0, 128.0),
+        ]
         
-        # Parse the CSV
-        result = parse_simulator_output(csv_path, self.layer_name)
+        for layer_name, expected_cycles, expected_time in test_cases:
+            # Test full metrics dictionary
+            metrics = parse_simulator_output(self.test_metrics_file, layer_name)
+            self.assertIsNotNone(metrics, f"Failed to extract metrics for {layer_name}")
+            self.assertIn("totCycles", metrics, f"totCycles not found for {layer_name}")
+            self.assertIn("totTime(us)", metrics, f"totTime(us) not found for {layer_name}")
+            self.assertAlmostEqual(metrics["totCycles"], expected_cycles, places=1, 
+                                 msg=f"Wrong totCycles value for {layer_name}")
+            self.assertAlmostEqual(metrics["totTime(us)"], expected_time, places=3,
+                                 msg=f"Wrong totTime(us) value for {layer_name}")
+            
+            # Test specific metric extraction
+            cycles = parse_simulator_output(self.test_metrics_file, layer_name, "totCycles")
+            self.assertEqual(cycles, expected_cycles, f"Wrong totCycles when requesting specific metric for {layer_name}")
+            
+            time_us = parse_simulator_output(self.test_metrics_file, layer_name, "totTime(us)")
+            self.assertEqual(time_us, expected_time, f"Wrong totTime(us) when requesting specific metric for {layer_name}")
+    
+    def test_parse_simulator_output_nonexistent_layer(self):
+        """Test parsing metrics for a layer that doesn't exist."""
+        # Skip if test metrics file doesn't exist
+        if not os.path.exists(self.test_metrics_file):
+            self.skipTest(f"Test metrics file not found: {self.test_metrics_file}")
         
-        # Verify correct metrics were extracted
-        self.assertEqual(result, {"totCycles": 1200.0, "totTime(us)": 8.5})
+        metrics = parse_simulator_output(self.test_metrics_file, "nonexistent_layer")
+        self.assertIsNone(metrics, "Should return None for nonexistent layer")
+    
+    def test_parse_simulator_output_case_insensitive(self):
+        """Test that layer name matching is case-insensitive."""
+        # Skip if test metrics file doesn't exist
+        if not os.path.exists(self.test_metrics_file):
+            self.skipTest(f"Test metrics file not found: {self.test_metrics_file}")
+        
+        # Original is "layer88_conv_bias89", try different case
+        metrics = parse_simulator_output(self.test_metrics_file, "Layer88_Conv_Bias89")
+        self.assertIsNotNone(metrics, "Case-insensitive matching failed")
+        self.assertAlmostEqual(metrics["totCycles"], 108798.0, places=1)
+    
+    def test_parse_layer_output_files(self):
+        """Test parsing metrics from various file formats."""
+        # Create a temporary JSON file
+        json_file = os.path.join(self.temp_dir, "layer_metrics.json")
+        with open(json_file, 'w') as f:
+            json.dump({
+                "test_layer": {
+                    "totCycles": 5000,
+                    "totTime(us)": 10.5
+                }
+            }, f)
+        
+        # Create a temporary log file
+        log_file = os.path.join(self.temp_dir, "layer_metrics.log")
+        with open(log_file, 'w') as f:
+            f.write("Layer test_layer: cycles=6000, time=12.5ms\n")
+        
+        # Test parsing from JSON
+        metrics = parse_layer_output_files([json_file], "test_layer")
+        self.assertIsNotNone(metrics, "Failed to parse JSON file")
+        self.assertEqual(metrics["totCycles"], 5000)
+        
+        # Test parsing from log
+        metrics = parse_layer_output_files([log_file], "test_layer")
+        self.assertIsNotNone(metrics, "Failed to parse log file")
+        self.assertEqual(metrics["totCycles"], 6000)
 
 if __name__ == '__main__':
     unittest.main()

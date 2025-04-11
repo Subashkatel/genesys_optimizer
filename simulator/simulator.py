@@ -6,7 +6,13 @@ import logging
 import glob
 import subprocess
 import re
+import threading
 from utils.logging_utils import setup_logging
+
+# Global semaphore to limit concurrent compilations/simulations
+# This helps prevent overwhelming the system
+MAX_CONCURRENT_RUNS = 4  # Adjust based on your system's capabilities
+compile_semaphore = threading.Semaphore(MAX_CONCURRENT_RUNS)
 
 logger = setup_logging("genesys_optimizer.simulator")
 
@@ -44,123 +50,136 @@ def check_output_readiness(full_output_dir, layer_name, timeout=60):
 
 def run_simulator(output_dir, layer_name, sim_path=None, metric_column=None, max_retries=2):
     """Run the simulator on a compiled layer and get performance metrics."""
-    # Save current directory
-    current_dir = os.getcwd()
+    # Use the semaphore to limit concurrent operations
+    with compile_semaphore:
+        # Save current directory
+        current_dir = os.getcwd()
 
-    if not sim_path:
-        logger.error("Simulator path not provided")
-        return None
-    
-    if not os.path.isabs(output_dir):
-        full_output_dir = os.path.abspath(os.path.join(current_dir, output_dir))
-    else:
-        full_output_dir = output_dir
-    
-    # Simple exponential backoff for directory readiness
-    max_attempts = 8
-    wait_time = 0.5
-    
-    for attempt in range(max_attempts):
-        if os.path.exists(full_output_dir):
-            # Verify the directory has the necessary files
-            layer_dir = os.path.join(full_output_dir, layer_name)
-            if os.path.exists(layer_dir) and os.path.exists(os.path.join(full_output_dir, "configs")):
-                break
-        
-        # Wait with exponential backoff
-        logger.info(f"Waiting for output directory (attempt {attempt+1}/{max_attempts}): {full_output_dir}")
-        time.sleep(wait_time)
-        wait_time *= 1.5  # More gradual backoff
-        
-        if attempt == max_attempts - 1:
-            logger.error(f"Output directory not ready after {max_attempts} attempts: {full_output_dir}")
+        if not sim_path:
+            logger.error("Simulator path not provided")
             return None
-    
-    # Create a unique output filename with unique timestamp to avoid collisions
-    model_name = os.path.basename(full_output_dir)
-    timestamp = int(time.time() * 1000)  # Milliseconds for uniqueness
-    output_file = f"{model_name}_{timestamp}_simulation_results.csv"
-    
-    # Construct the simulator command
-    cmd = [
-        "python3", 
-        "-m", 
-        "genesys_sim.genesys", 
-        "configs/", 
-        full_output_dir, 
-        "--mode", 
-        "perf", 
-        "--log_path", 
-        output_file
-    ]
-
-    for attempt in range(max_retries):
-        try:
-            # Change to simulator directory first
-            os.chdir(sim_path)
-            logger.info(f"Running simulator (attempt {attempt + 1}/{max_retries}) from {sim_path}: {' '.join(cmd)}")
-            
-            # Run the simulator with timeout
-            result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
-            
-            # Output CSV is in the simulator directory
-            output_csv = os.path.join(sim_path, output_file)
-
-            os.chdir(current_dir)
-
-            if not os.path.exists(output_csv):
-                logger.warning(f"Simulator output CSV file not found: {output_csv} (attempt {attempt +1})")
-                
-                # Try to find any output file that might have been generated
-                potential_files = glob.glob(os.path.join(sim_path, f"{model_name}*_simulation_results.csv"))
-                if potential_files:
-                    latest_file = max(potential_files, key=os.path.getmtime)
-                    logger.info(f"Found alternative output file: {latest_file}")
-                    output_csv = latest_file
-                else:
-                    if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt
-                        logger.info(f"Retrying in {wait_time} seconds...")
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        logger.error(f"Failed to run the simulator after {max_retries} attempts.")
-                        return None
+        
+        if not os.path.isabs(output_dir):
+            full_output_dir = os.path.abspath(os.path.join(current_dir, output_dir))
+        else:
+            full_output_dir = output_dir
+        
+        # Initial delay before checking for directory
+        # This gives time for the compilation to actually create the output directory
+        initial_delay = 2.0  # seconds
+        logger.info(f"Waiting {initial_delay} seconds before checking for output directory")
+        time.sleep(initial_delay)
+        
+        # Improved exponential backoff for directory readiness
+        max_attempts = 10  # Increased from 8
+        wait_time = 1.0    # Longer initial wait
+        
+        for attempt in range(max_attempts):
+            if os.path.exists(full_output_dir):
+                # More thorough verification of directory readiness
+                layer_dir = os.path.join(full_output_dir, layer_name)
+                if os.path.exists(layer_dir):
+                    json_files = glob.glob(os.path.join(layer_dir, "*.json"))
+                    config_dir = os.path.join(full_output_dir, "configs")
                     
-            # Parse the results
-            metrics = parse_simulator_output(output_csv, layer_name, metric_column)
+                    if json_files and os.path.exists(config_dir):
+                        logger.info(f"Output directory is ready: {full_output_dir}")
+                        break
             
-            # Also look for layer-specific output files if standard parsing fails
-            if metrics is None:
-                layer_output_files = find_layer_output_files(sim_path, full_output_dir, layer_name)
-                if layer_output_files:
-                    logger.info(f"Trying to parse metrics from layer-specific output files")
-                    metrics = parse_layer_output_files(layer_output_files, layer_name, metric_column)
+            # Wait with exponential backoff
+            logger.info(f"Waiting for output directory (attempt {attempt+1}/{max_attempts}): {full_output_dir}")
+            time.sleep(wait_time)
+            wait_time = min(wait_time * 1.5, 8.0)  # Cap at 8 seconds, but allow longer waits
             
-            # Clean up the output file to avoid cluttering the simulator directory
-            try:
-                os.remove(output_csv)
-            except:
-                pass
-                
-            return metrics
-            
-        except (subprocess.CalledProcessError, FileNotFoundError, IOError, subprocess.TimeoutExpired) as e:
-            os.chdir(current_dir)
-            
-            logger.warning(f"Simulator attempt {attempt+1} failed: {str(e)}")
-            if hasattr(e, 'stderr') and e.stderr:
-                logger.warning(f"Simulator error output: {e.stderr.decode()}")
-                
-            if attempt < max_retries - 1:
-                wait_time = 2 ** attempt
-                logger.info(f"Waiting {wait_time} seconds before retry...")
-                time.sleep(wait_time)
-            else:
-                logger.error("All simulator attempts failed")
+            if attempt == max_attempts - 1:
+                logger.error(f"Output directory not ready after {max_attempts} attempts: {full_output_dir}")
                 return None
+        
+        # Create a unique output filename with unique timestamp to avoid collisions
+        model_name = os.path.basename(full_output_dir)
+        timestamp = int(time.time() * 1000)  # Milliseconds for uniqueness
+        output_file = f"{model_name}_{timestamp}_simulation_results.csv"
+        
+        # Construct the simulator command
+        cmd = [
+            "python3", 
+            "-m", 
+            "genesys_sim.genesys", 
+            "configs/", 
+            full_output_dir, 
+            "--mode", 
+            "perf", 
+            "--log_path", 
+            output_file
+        ]
+
+        for attempt in range(max_retries):
+            try:
+                # Change to simulator directory first
+                os.chdir(sim_path)
+                logger.info(f"Running simulator (attempt {attempt + 1}/{max_retries}) from {sim_path}: {' '.join(cmd)}")
                 
-    return None
+                # Run the simulator with timeout
+                result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)  # Increased timeout
+                
+                # Output CSV is in the simulator directory
+                output_csv = os.path.join(sim_path, output_file)
+
+                os.chdir(current_dir)
+
+                if not os.path.exists(output_csv):
+                    logger.warning(f"Simulator output CSV file not found: {output_csv} (attempt {attempt +1})")
+                    
+                    # Try to find any output file that might have been generated
+                    potential_files = glob.glob(os.path.join(sim_path, f"{model_name}*_simulation_results.csv"))
+                    if potential_files:
+                        latest_file = max(potential_files, key=os.path.getmtime)
+                        logger.info(f"Found alternative output file: {latest_file}")
+                        output_csv = latest_file
+                    else:
+                        if attempt < max_retries - 1:
+                            wait_time = 2 ** attempt
+                            logger.info(f"Retrying in {wait_time} seconds...")
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            logger.error(f"Failed to run the simulator after {max_retries} attempts.")
+                            return None
+                        
+                # Parse the results
+                metrics = parse_simulator_output(output_csv, layer_name, metric_column)
+                
+                # Also look for layer-specific output files if standard parsing fails
+                if metrics is None:
+                    layer_output_files = find_layer_output_files(sim_path, full_output_dir, layer_name)
+                    if layer_output_files:
+                        logger.info(f"Trying to parse metrics from layer-specific output files")
+                        metrics = parse_layer_output_files(layer_output_files, layer_name, metric_column)
+                
+                # Clean up the output file to avoid cluttering the simulator directory
+                try:
+                    os.remove(output_csv)
+                except:
+                    pass
+                    
+                return metrics
+                
+            except (subprocess.CalledProcessError, FileNotFoundError, IOError, subprocess.TimeoutExpired) as e:
+                os.chdir(current_dir)
+                
+                logger.warning(f"Simulator attempt {attempt+1} failed: {str(e)}")
+                if hasattr(e, 'stderr') and e.stderr:
+                    logger.warning(f"Simulator error output: {e.stderr.decode()}")
+                    
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    logger.info(f"Waiting {wait_time} seconds before retry...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error("All simulator attempts failed")
+                    return None
+                    
+        return None
 
 def find_layer_output_files(sim_path, output_dir, layer_name):
     """

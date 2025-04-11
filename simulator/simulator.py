@@ -388,17 +388,29 @@ def parse_simulator_output(output_csv, layer_name, metric_column=None):
             
             # Find indices for metrics columns (try multiple variations)
             metric_indices = {}
+            layer_type_idx = None
             
+            # First find the layer type index if it exists
+            for i, col in enumerate(header):
+                if "layertype" in col.lower() or "layer type" in col.lower():
+                    layer_type_idx = i
+                    break
+            
+            # Find all possible metric columns
             for i, col in enumerate(header):
                 col_lower = col.lower().strip()
                 
-                if "cycle" in col_lower or "cycles" in col_lower:
+                # Standard metrics
+                if "totcycles" in col_lower:
                     metric_indices["totCycles"] = i
                 elif "time" in col_lower and ("us" in col_lower or "micro" in col_lower):
                     metric_indices["totTime(us)"] = i
+                # SIMD-specific metrics
+                elif "simdtotalcycles" in col_lower:
+                    metric_indices["simdtotalCycles"] = i
+                # Add more metrics as needed
                 elif "memory" in col_lower or "mem" in col_lower:
                     metric_indices["memory"] = i
-                # Add more metrics as needed
             
             if not metric_indices:
                 logger.error(f"Could not find any metric columns in header: {header}")
@@ -417,6 +429,12 @@ def parse_simulator_output(output_csv, layer_name, metric_column=None):
                 if row_layer == layer_name or row_layer.lower() == layer_name.lower():
                     metrics = {}
                     
+                    # Determine if this is a SIMD layer
+                    is_simd = False
+                    if layer_type_idx is not None and len(row) > layer_type_idx:
+                        is_simd = row[layer_type_idx].lower() == "simd"
+                    
+                    # Extract all available metrics
                     for metric_name, col_idx in metric_indices.items():
                         if col_idx < len(row) and row[col_idx].strip():
                             try:
@@ -425,12 +443,30 @@ def parse_simulator_output(output_csv, layer_name, metric_column=None):
                                 logger.warning(f"Non-numeric value '{row[col_idx]}' for metric {metric_name}")
                     
                     if metrics:
+                        # Map SIMD-specific metrics to standard metric names if needed
+                        if is_simd or "simdtotalCycles" in metrics:
+                            # For SIMD layers, map simdtotalCycles to totCycles if it doesn't exist
+                            if "simdtotalCycles" in metrics and "totCycles" not in metrics:
+                                metrics["totCycles"] = metrics["simdtotalCycles"]
+                                logger.info(f"Mapped simdtotalCycles to totCycles for SIMD layer {layer_name}")
+                        
                         logger.info(f"Found metrics for layer {layer_name}: {metrics}")
                         
                         # If specific metric requested and available, return just that
-                        if metric_column and metric_column.lower() in [key.lower() for key in metrics]:
+                        if metric_column:
+                            metric_column_lower = metric_column.lower()
+                            
+                            # Special handling for specific metric requests
+                            if metric_column_lower == "totcycles":
+                                # If totCycles was requested but only simdtotalCycles is available, return that
+                                if "totCycles" in metrics:
+                                    return metrics["totCycles"]
+                                elif "simdtotalCycles" in metrics:
+                                    return metrics["simdtotalCycles"]
+                            
+                            # Standard direct lookup
                             for key, value in metrics.items():
-                                if key.lower() == metric_column.lower():
+                                if key.lower() == metric_column_lower:
                                     return value
                         
                         # Otherwise return all metrics
